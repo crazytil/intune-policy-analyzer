@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import type { Policy, Group, GroupPolicyMapping } from '../types'
 import { POLICY_TYPES } from '../types'
-import { fetchAllGroups, getGroupPolicies, getPolicyGroups } from '../services/api'
+import { getGroupPolicies, getPolicyGroups } from '../services/api'
 import type { PolicyGroupTarget } from '../services/api'
 
 interface GroupExplorerProps {
   policies: Policy[]
+  groups: Group[]
 }
 
 type Mode = 'groupToPolicies' | 'policyToGroups'
@@ -59,31 +60,20 @@ function SettingsView({ settings }: { settings: unknown[] }) {
 
 // ─── Group → Policies Mode ─────────────────────────────────────────
 
-function GroupToPolicies() {
+function GroupToPolicies({ groups }: { groups: Group[] }) {
   const [query, setQuery] = useState('')
-  const [allGroups, setAllGroups] = useState<Group[]>([])
-  const [loadingGroups, setLoadingGroups] = useState(false)
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
   const [mappings, setMappings] = useState<GroupPolicyMapping[]>([])
   const [loadingPolicies, setLoadingPolicies] = useState(false)
   const [expandedPolicies, setExpandedPolicies] = useState<Set<string>>(new Set())
   const [collapsedTypes, setCollapsedTypes] = useState<Set<string>>(new Set())
 
-  // Load all groups on mount
-  useEffect(() => {
-    setLoadingGroups(true)
-    fetchAllGroups()
-      .then(setAllGroups)
-      .catch(() => setAllGroups([]))
-      .finally(() => setLoadingGroups(false))
-  }, [])
-
   // Client-side filter
   const filtered = query.trim()
-    ? allGroups.filter((g) =>
+    ? groups.filter((g) =>
         g.displayName.toLowerCase().includes(query.toLowerCase())
       )
-    : allGroups
+    : groups
 
   const handleSelectGroup = useCallback(async (group: Group) => {
     setSelectedGroup(group)
@@ -144,24 +134,14 @@ function GroupToPolicies() {
             placeholder="Filter groups…"
             className="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 placeholder-gray-400"
           />
-          {loadingGroups && (
-            <div className="absolute right-3 top-2.5">
-              <Spinner className="h-4 w-4 text-gray-400" />
-            </div>
-          )}
         </div>
 
         <p className="text-xs text-gray-400 dark:text-gray-500 mt-2 px-1">
-          {allGroups.length} groups{query.trim() ? ` · ${filtered.length} shown` : ''}
+          {groups.length} groups{query.trim() ? ` · ${filtered.length} shown` : ''}
         </p>
 
         <div className="mt-2 flex-1 overflow-y-auto space-y-1">
-          {loadingGroups && (
-            <div className="flex items-center justify-center py-12">
-              <Spinner className="h-6 w-6 text-blue-500" />
-            </div>
-          )}
-          {!loadingGroups && filtered.length === 0 && (
+          {filtered.length === 0 && (
             <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">
               {query.trim() ? 'No groups match your filter' : 'No groups found'}
             </p>
@@ -404,7 +384,7 @@ function PolicyToGroups({ policies }: { policies: Policy[] }) {
 
 // ─── Main Component ──────────────────────────────────────────────────
 
-export default function GroupExplorer({ policies }: GroupExplorerProps) {
+export default function GroupExplorer({ policies, groups }: GroupExplorerProps) {
   const [mode, setMode] = useState<Mode>('groupToPolicies')
 
   return (
@@ -436,7 +416,7 @@ export default function GroupExplorer({ policies }: GroupExplorerProps) {
       </div>
 
       {/* Active view */}
-      {mode === 'groupToPolicies' ? <GroupToPolicies /> : <PolicyToGroups policies={policies} />}
+      {mode === 'groupToPolicies' ? <GroupToPolicies groups={groups} /> : <PolicyToGroups policies={policies} />}
     </div>
   )
 }

@@ -1,10 +1,11 @@
-import type { Policy } from '../types'
+import type { Policy, Group } from '../types'
 import { POLICY_TYPES } from '../types'
 
 interface DashboardProps {
   policies: Policy[]
+  groups: Group[]
   loading: boolean
-  onLoadPolicies: () => void
+  onRefresh: () => void
   loadedAt: number | null
   fromCache: boolean
 }
@@ -38,7 +39,7 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
   )
 }
 
-export default function Dashboard({ policies, loading, onLoadPolicies, loadedAt, fromCache }: DashboardProps) {
+export default function Dashboard({ policies, groups, loading, onRefresh, loadedAt, fromCache }: DashboardProps) {
   const loaded = policies.length > 0
 
   const typeCounts = POLICY_TYPES.map((pt) => {
@@ -66,14 +67,14 @@ export default function Dashboard({ policies, loading, onLoadPolicies, loadedAt,
           sub={loaded ? `${typeCounts.length} types` : 'Not loaded'}
         />
         <StatCard
-          label="Groups with Assignments"
-          value={loaded ? groupIds.size : '—'}
-          sub={loaded ? 'Unique target groups' : 'Not loaded'}
+          label="Groups in Tenant"
+          value={groups.length > 0 ? groups.length : '—'}
+          sub={loaded ? `${groupIds.size} with assignments` : 'Not loaded'}
         />
         <StatCard
           label="Conflicts Found"
           value="—"
-          sub="Coming soon"
+          sub="Run Conflict Analyzer"
         />
         <StatCard
           label="Optimization Score"
@@ -82,23 +83,13 @@ export default function Dashboard({ policies, loading, onLoadPolicies, loadedAt,
         />
       </div>
 
-      {/* Load button */}
-      {!loaded && (
+      {/* Loading indicator */}
+      {loading && !loaded && (
         <div className="flex justify-center">
-          <button
-            onClick={onLoadPolicies}
-            disabled={loading}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-          >
-            {loading ? (
-              <>
-                <Spinner />
-                Loading Policies…
-              </>
-            ) : (
-              'Load Policies'
-            )}
-          </button>
+          <div className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white font-medium rounded-lg opacity-80">
+            <Spinner />
+            Loading policies and groups…
+          </div>
         </div>
       )}
 
@@ -112,16 +103,18 @@ export default function Dashboard({ policies, loading, onLoadPolicies, loadedAt,
               </span>
             )}
             {loadedAt && (
-              <span>Loaded {timeAgo(loadedAt)}</span>
+              <span>
+                {policies.length} policies · {groups.length} groups · Loaded {timeAgo(loadedAt)}
+              </span>
             )}
           </div>
           <button
-            onClick={onLoadPolicies}
+            onClick={onRefresh}
             disabled={loading}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-60 transition-colors"
           >
             {loading ? <Spinner /> : '↻'}
-            {loading ? 'Refreshing…' : 'Refresh Policies'}
+            {loading ? 'Refreshing…' : 'Refresh All'}
           </button>
         </div>
       )}

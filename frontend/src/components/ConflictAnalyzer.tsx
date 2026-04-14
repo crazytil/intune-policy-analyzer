@@ -1,11 +1,12 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import type { Policy, Group } from '../types'
 import { POLICY_TYPES } from '../types'
-import { analyzeConflicts, analyzeConflictsForGroup, analyzeConflictsForPolicy, fetchAllGroups } from '../services/api'
+import { analyzeConflicts, analyzeConflictsForGroup, analyzeConflictsForPolicy } from '../services/api'
 import type { ConflictItem, ConflictStats } from '../services/api'
 
 interface ConflictAnalyzerProps {
   policies: Policy[]
+  groups: Group[]
 }
 
 type FilterMode = 'all' | 'conflicts' | 'matching'
@@ -36,7 +37,7 @@ function StatCard({ label, value, icon, accent }: { label: string; value: number
   )
 }
 
-export default function ConflictAnalyzer({ policies }: ConflictAnalyzerProps) {
+export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [conflicts, setConflicts] = useState<ConflictItem[] | null>(null)
@@ -49,14 +50,8 @@ export default function ConflictAnalyzer({ policies }: ConflictAnalyzerProps) {
   const [scopeMode, setScopeMode] = useState<ScopeMode>('all')
   const [selectedGroupId, setSelectedGroupId] = useState<string>('')
   const [selectedPolicyId, setSelectedPolicyId] = useState<string>('')
-  const [groups, setGroups] = useState<Group[]>([])
   const [groupFilter, setGroupFilter] = useState('')
   const [policyFilter, setPolicyFilter] = useState('')
-
-  // Load groups on mount for the group picker
-  useEffect(() => {
-    fetchAllGroups().then(setGroups).catch(() => setGroups([]))
-  }, [])
 
   const filteredGroups = groupFilter.trim()
     ? groups.filter((g) => g.displayName.toLowerCase().includes(groupFilter.toLowerCase()))

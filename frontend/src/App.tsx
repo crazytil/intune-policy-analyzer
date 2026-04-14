@@ -1,42 +1,65 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { AuthStatus, Policy } from './types'
-import { getAuthStatus, login, logout, fetchPolicies } from './services/api'
+import type { AuthStatus, Policy, Group } from './types'
+import { getAuthStatus, login, logout, fetchPolicies, fetchAllGroups } from './services/api'
 import Dashboard from './components/Dashboard'
 import GroupExplorer from './components/GroupExplorer'
 import ConflictAnalyzer from './components/ConflictAnalyzer'
 
 type Tab = 'dashboard' | 'groupExplorer' | 'conflicts' | 'optimization'
 
-const CACHE_KEY = 'intune-policies-cache'
+const POLICY_CACHE_KEY = 'intune-policies-cache'
+const GROUP_CACHE_KEY = 'intune-groups-cache'
 
-interface PolicyCache {
+interface DataCache<T> {
   tenantId: string
   userName: string
-  policies: Policy[]
+  data: T
   timestamp: number
 }
 
-function loadCachedPolicies(tenantId: string, userName: string): PolicyCache | null {
+function loadCache<T>(key: string, tenantId: string, userName: string): DataCache<T> | null {
   try {
-    const raw = sessionStorage.getItem(CACHE_KEY)
+    const raw = sessionStorage.getItem(key)
     if (!raw) return null
-    const cache: PolicyCache = JSON.parse(raw)
-    if (cache.tenantId === tenantId && cache.userName === userName && cache.policies.length > 0) {
+    const cache: DataCache<T> = JSON.parse(raw)
+    if (cache.tenantId === tenantId && cache.userName === userName) {
       return cache
     }
   } catch { /* ignore */ }
   return null
 }
 
-function savePoliciesCache(tenantId: string, userName: string, policies: Policy[]) {
+function saveCache<T>(key: string, tenantId: string, userName: string, data: T) {
   try {
-    const cache: PolicyCache = { tenantId, userName, policies, timestamp: Date.now() }
-    sessionStorage.setItem(CACHE_KEY, JSON.stringify(cache))
+    const cache: DataCache<T> = { tenantId, userName, data, timestamp: Date.now() }
+    sessionStorage.setItem(key, JSON.stringify(cache))
   } catch { /* ignore - storage full */ }
 }
 
-function clearPoliciesCache() {
-  try { sessionStorage.removeItem(CACHE_KEY) } catch { /* ignore */ }
+function clearAllCaches() {
+  try {
+    sessionStorage.removeItem(POLICY_CACHE_KEY)
+    sessionStorage.removeItem(GROUP_CACHE_KEY)
+  } catch { /* ignore */ }
+}
+
+function timeAgo(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000)
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ${minutes % 60}m ago`
+  return new Date(timestamp).toLocaleString()
+}
+
+function Spinner({ className = 'h-4 w-4' }: { className?: string }) {
+  return (
+    <svg className={`animate-spin ${className}`} viewBox="0 0 24 24" fill="none">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  )
 }
 
 export default function App() {
@@ -49,9 +72,12 @@ export default function App() {
   const [auth, setAuth] = useState<AuthStatus | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<Tab>('dashboard')
+
+  // Data state
   const [policies, setPolicies] = useState<Policy[]>([])
-  const [policiesLoading, setPoliciesLoading] = useState(false)
-  const [policiesLoadedAt, setPoliciesLoadedAt] = useState<number | null>(null)
+  const [groups, setGroups] = useState<Group[]>([])
+  const [dataLoading, setDataLoading] = useState(false)
+  const [dataLoadedAt, setDataLoadedAt] = useState<number | null>(null)
   const [fromCache, setFromCache] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -76,19 +102,55 @@ export default function App() {
       .finally(() => setAuthLoading(false))
   }, [])
 
-  // Auto-load policies when authenticated: try cache first, then fetch
-  useEffect(() => {
-    if (auth?.isAuthenticated && policies.length === 0 && !policiesLoading) {
-      const cached = loadCachedPolicies(auth.tenantId ?? '', auth.userName ?? '')
-      if (cached) {
-        setPolicies(cached.policies)
-        setPoliciesLoadedAt(cached.timestamp)
+  // Load all data (policies + groups) — from cache or fresh
+  const loadAllData = useCallback(async (forceRefresh = false) => {
+    if (!auth?.tenantId || !auth?.userName) return
+
+    // Try cache first (unless forcing refresh)
+    if (!forceRefresh) {
+      const cachedPolicies = loadCache<Policy[]>(POLICY_CACHE_KEY, auth.tenantId, auth.userName)
+      const cachedGroups = loadCache<Group[]>(GROUP_CACHE_KEY, auth.tenantId, auth.userName)
+      if (cachedPolicies && cachedPolicies.data.length > 0 && cachedGroups && cachedGroups.data.length > 0) {
+        setPolicies(cachedPolicies.data)
+        setGroups(cachedGroups.data)
+        setDataLoadedAt(Math.min(cachedPolicies.timestamp, cachedGroups.timestamp))
         setFromCache(true)
-      } else {
-        handleLoadPolicies()
+        return
       }
     }
+
+    // Fetch fresh
+    setDataLoading(true)
+    setFromCache(false)
+    setError(null)
+    try {
+      const [policiesData, groupsData] = await Promise.all([
+        fetchPolicies(),
+        fetchAllGroups(),
+      ])
+      setPolicies(policiesData)
+      setGroups(groupsData)
+      const now = Date.now()
+      setDataLoadedAt(now)
+      saveCache(POLICY_CACHE_KEY, auth.tenantId, auth.userName, policiesData)
+      saveCache(GROUP_CACHE_KEY, auth.tenantId, auth.userName, groupsData)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load data')
+    } finally {
+      setDataLoading(false)
+    }
+  }, [auth?.tenantId, auth?.userName])
+
+  // Auto-load when authenticated
+  useEffect(() => {
+    if (auth?.isAuthenticated && policies.length === 0 && !dataLoading) {
+      loadAllData(false)
+    }
   }, [auth?.isAuthenticated]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleRefresh = useCallback(() => {
+    loadAllData(true)
+  }, [loadAllData])
 
   const handleLogin = async () => {
     setError(null)
@@ -105,31 +167,13 @@ export default function App() {
       await logout()
       setAuth({ isAuthenticated: false, userName: null, tenantId: null })
       setPolicies([])
-      setPoliciesLoadedAt(null)
-      clearPoliciesCache()
+      setGroups([])
+      setDataLoadedAt(null)
+      clearAllCaches()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Logout failed')
     }
   }
-
-  const handleLoadPolicies = useCallback(async () => {
-    setPoliciesLoading(true)
-    setFromCache(false)
-    setError(null)
-    try {
-      const data = await fetchPolicies()
-      setPolicies(data)
-      const now = Date.now()
-      setPoliciesLoadedAt(now)
-      if (auth?.tenantId && auth?.userName) {
-        savePoliciesCache(auth.tenantId, auth.userName, data)
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load policies')
-    } finally {
-      setPoliciesLoading(false)
-    }
-  }, [auth?.tenantId, auth?.userName])
 
   const tabs: { key: Tab; label: string; disabled: boolean }[] = [
     { key: 'dashboard', label: 'Dashboard', disabled: false },
@@ -137,6 +181,8 @@ export default function App() {
     { key: 'conflicts', label: 'Conflict Analyzer', disabled: false },
     { key: 'optimization', label: 'Optimization', disabled: true },
   ]
+
+  const dataLoaded = policies.length > 0
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors">
@@ -148,6 +194,30 @@ export default function App() {
               <span className="text-xl font-bold tracking-tight">
                 📊 Intune Policy Analyzer
               </span>
+              {/* Cache/refresh indicator in header */}
+              {auth?.isAuthenticated && dataLoaded && (
+                <div className="hidden sm:flex items-center gap-2 ml-4">
+                  {fromCache && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 text-xs font-medium rounded">
+                      ⚡ Cached
+                    </span>
+                  )}
+                  {dataLoadedAt && (
+                    <span className="text-xs text-gray-400 dark:text-gray-500">
+                      {timeAgo(dataLoadedAt)}
+                    </span>
+                  )}
+                  <button
+                    onClick={handleRefresh}
+                    disabled={dataLoading}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+                    title="Refresh policies and groups from Intune"
+                  >
+                    {dataLoading ? <Spinner /> : <span>↻</span>}
+                    Refresh
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-4">
@@ -259,17 +329,18 @@ export default function App() {
             {activeTab === 'dashboard' && (
               <Dashboard
                 policies={policies}
-                loading={policiesLoading}
-                onLoadPolicies={handleLoadPolicies}
-                loadedAt={policiesLoadedAt}
+                groups={groups}
+                loading={dataLoading}
+                onRefresh={handleRefresh}
+                loadedAt={dataLoadedAt}
                 fromCache={fromCache}
               />
             )}
             {activeTab === 'groupExplorer' && (
-              <GroupExplorer policies={policies} />
+              <GroupExplorer policies={policies} groups={groups} />
             )}
             {activeTab === 'conflicts' && (
-              <ConflictAnalyzer policies={policies} />
+              <ConflictAnalyzer policies={policies} groups={groups} />
             )}
           </main>
         </>
