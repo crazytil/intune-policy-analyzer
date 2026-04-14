@@ -3,6 +3,7 @@ import type { AuthStatus, Policy } from './types'
 import { getAuthStatus, login, logout, fetchPolicies } from './services/api'
 import Dashboard from './components/Dashboard'
 import GroupExplorer from './components/GroupExplorer'
+import ConflictAnalyzer from './components/ConflictAnalyzer'
 
 type Tab = 'dashboard' | 'groupExplorer' | 'conflicts' | 'optimization'
 
@@ -71,7 +72,7 @@ export default function App() {
   const tabs: { key: Tab; label: string; disabled: boolean }[] = [
     { key: 'dashboard', label: 'Dashboard', disabled: false },
     { key: 'groupExplorer', label: 'Group Explorer', disabled: false },
-    { key: 'conflicts', label: 'Conflict Analyzer', disabled: true },
+    { key: 'conflicts', label: 'Conflict Analyzer', disabled: false },
     { key: 'optimization', label: 'Optimization', disabled: true },
   ]
 
@@ -130,35 +131,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* Tab navigation */}
-      <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex gap-1">
-            {tabs.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => !tab.disabled && setActiveTab(tab.key)}
-                disabled={tab.disabled}
-                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === tab.key
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                    : tab.disabled
-                      ? 'border-transparent text-gray-300 dark:text-gray-600 cursor-not-allowed'
-                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300'
-                }`}
-              >
-                {tab.label}
-                {tab.disabled && (
-                  <span className="ml-1.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 px-1.5 py-0.5 rounded">
-                    Soon
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-      </nav>
-
       {/* Error banner */}
       {error && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
@@ -174,19 +146,70 @@ export default function App() {
         </div>
       )}
 
-      {/* Main content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {activeTab === 'dashboard' && (
-          <Dashboard
-            policies={policies}
-            loading={policiesLoading}
-            onLoadPolicies={handleLoadPolicies}
-          />
-        )}
-        {activeTab === 'groupExplorer' && (
-          <GroupExplorer policies={policies} />
-        )}
-      </main>
+      {/* Not authenticated — landing page */}
+      {!authLoading && !auth?.isAuthenticated && (
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 text-center">
+          <h2 className="text-3xl font-bold mb-4">Welcome to Intune Policy Analyzer</h2>
+          <p className="text-gray-500 dark:text-gray-400 mb-8 max-w-lg mx-auto">
+            Analyze your Intune policies, explore group assignments, detect conflicts, and optimize your configuration — all read-only, no app registration required.
+          </p>
+          <button
+            onClick={handleLogin}
+            className="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors text-lg"
+          >
+            Sign in with Microsoft
+          </button>
+        </main>
+      )}
+
+      {/* Authenticated — show tabs and content */}
+      {auth?.isAuthenticated && (
+        <>
+          <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="flex gap-1">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => !tab.disabled && setActiveTab(tab.key)}
+                    disabled={tab.disabled}
+                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                      activeTab === tab.key
+                        ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                        : tab.disabled
+                          ? 'border-transparent text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    {tab.label}
+                    {tab.disabled && (
+                      <span className="ml-1.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 px-1.5 py-0.5 rounded">
+                        Soon
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </nav>
+
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            {activeTab === 'dashboard' && (
+              <Dashboard
+                policies={policies}
+                loading={policiesLoading}
+                onLoadPolicies={handleLoadPolicies}
+              />
+            )}
+            {activeTab === 'groupExplorer' && (
+              <GroupExplorer policies={policies} />
+            )}
+            {activeTab === 'conflicts' && (
+              <ConflictAnalyzer policies={policies} />
+            )}
+          </main>
+        </>
+      )}
     </div>
   )
 }

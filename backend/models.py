@@ -4,7 +4,12 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+
+def _to_camel(name: str) -> str:
+    parts = name.split("_")
+    return parts[0] + "".join(w.capitalize() for w in parts[1:])
 
 
 class PolicyType(str, Enum):
@@ -49,11 +54,13 @@ class FindingType(str, Enum):
 
 
 class PolicyAssignment(BaseModel):
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
     id: str | None = None
     target: dict[str, Any] = Field(default_factory=dict)
 
 
 class Policy(BaseModel):
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
     id: str
     display_name: str = ""
     description: str | None = None
@@ -67,6 +74,7 @@ class Policy(BaseModel):
 
 
 class Group(BaseModel):
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
     id: str
     display_name: str = ""
     description: str | None = None
@@ -76,12 +84,14 @@ class Group(BaseModel):
 
 
 class GroupPolicyMapping(BaseModel):
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
     group: Group
     policies: list[Policy] = Field(default_factory=list)
     assignment_source: AssignmentSource
 
 
 class ConflictPolicy(BaseModel):
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
     policy_id: str
     policy_name: str
     policy_type: str
@@ -89,6 +99,7 @@ class ConflictPolicy(BaseModel):
 
 
 class ConflictItem(BaseModel):
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
     setting_key: str
     setting_label: str = ""
     has_different_values: bool = False
@@ -96,6 +107,7 @@ class ConflictItem(BaseModel):
 
 
 class OptimizationFinding(BaseModel):
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
     finding_type: FindingType
     severity: Severity
     description: str
@@ -104,6 +116,7 @@ class OptimizationFinding(BaseModel):
 
 
 class AuthStatus(BaseModel):
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
     is_authenticated: bool = False
     user_name: str | None = None
     tenant_id: str | None = None

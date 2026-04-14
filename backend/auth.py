@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import json
 import logging
 import os
+from typing import Optional
 
 import msal
 
@@ -9,7 +12,7 @@ from models import AuthStatus
 
 logger = logging.getLogger(__name__)
 
-_msal_app: msal.PublicClientApplication | None = None
+_msal_app: Optional[msal.PublicClientApplication] = None
 _token_cache = msal.SerializableTokenCache()
 
 
@@ -64,7 +67,7 @@ def initiate_auth() -> AuthStatus:
     return AuthStatus(is_authenticated=False)
 
 
-def get_token() -> str | None:
+def get_token() -> Optional[str]:
     app = _get_app()
     accounts = app.get_accounts()
     if not accounts:

@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -13,7 +15,7 @@ logger = logging.getLogger(__name__)
 class GraphClient:
     def __init__(self) -> None:
         self._semaphore = asyncio.Semaphore(settings.max_concurrent_requests)
-        self._client: httpx.AsyncClient | None = None
+        self._client: Optional[httpx.AsyncClient] = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -27,6 +29,7 @@ class GraphClient:
         return {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
+            "ConsistencyLevel": "eventual",
         }
 
     async def _request_with_retry(
@@ -59,8 +62,8 @@ class GraphClient:
             return response
 
     async def get(
-        self, endpoint: str, params: dict[str, str] | None = None
-    ) -> list[dict[str, Any]]:
+        self, endpoint: str, params: Optional[Dict[str, str]] = None
+    ) -> List[Dict[str, Any]]:
         url = f"{settings.graph_base_url}/{endpoint}"
         all_items: list[dict[str, Any]] = []
 

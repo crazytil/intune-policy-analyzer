@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +16,7 @@ from group_resolver import (
     resolve_policies_for_group,
     search_groups,
 )
+from conflict_analyzer import analyze_all_conflicts, analyze_conflicts_for_group, build_conflict_stats
 from models import AuthStatus, GroupPolicyMapping, Policy
 from policy_fetcher import fetch_all_policies
 
@@ -35,7 +38,7 @@ app.add_middleware(
 
 # In-memory cache
 _policies_cache: dict[str, Policy] = {}
-_graph_client: GraphClient | None = None
+_graph_client: Optional[GraphClient] = None
 
 
 def _get_graph_client() -> GraphClient:
@@ -48,12 +51,12 @@ def _get_graph_client() -> GraphClient:
 # ── Auth routes ──────────────────────────────────────────────────────────────
 
 
-@app.get("/api/auth/status", response_model=AuthStatus)
+@app.get("/api/auth/status", response_model=AuthStatus, response_model_by_alias=True)
 async def auth_status() -> AuthStatus:
     return auth.get_auth_status()
 
 
-@app.post("/api/auth/login", response_model=AuthStatus)
+@app.post("/api/auth/login", response_model=AuthStatus, response_model_by_alias=True)
 async def auth_login() -> AuthStatus:
     try:
         return auth.initiate_auth()
@@ -72,7 +75,7 @@ async def auth_logout() -> dict[str, str]:
 # ── Policy routes ────────────────────────────────────────────────────────────
 
 
-@app.get("/api/policies", response_model=list[Policy])
+@app.get("/api/policies", response_model=list[Policy], response_model_by_alias=True)
 async def get_policies() -> list[Policy]:
     """Fetch all policies from Graph API and cache them."""
     client = _get_graph_client()
@@ -89,7 +92,7 @@ async def get_policies() -> list[Policy]:
         raise HTTPException(status_code=500, detail=f"Failed to fetch policies: {e}")
 
 
-@app.get("/api/policies/{policy_id}", response_model=Policy)
+@app.get("/api/policies/{policy_id}", response_model=Policy, response_model_by_alias=True)
 async def get_policy(policy_id: str) -> Policy:
     """Get a single policy from cache."""
     if policy_id in _policies_cache:
@@ -106,7 +109,7 @@ async def search_groups_route(q: str = Query(..., min_length=1)) -> list[dict[st
     client = _get_graph_client()
     try:
         groups = await search_groups(client, q)
-        return [g.model_dump() for g in groups]
+        return [g.model_dump(by_alias=True) for g in groups]
     except RuntimeError as e:
         raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
@@ -127,7 +130,7 @@ async def get_group_route(group_id: str) -> dict[str, Any]:
         members = await get_group_transitive_members(client, group_id)
         group.member_count = len(members)
 
-        return group.model_dump()
+        return group.model_dump(by_alias=True)
     except HTTPException:
         raise
     except RuntimeError as e:
@@ -137,7 +140,7 @@ async def get_group_route(group_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Failed to get group: {e}")
 
 
-@app.get("/api/groups/{group_id}/policies", response_model=list[GroupPolicyMapping])
+@app.get("/api/groups/{group_id}/policies", response_model=list[GroupPolicyMapping], response_model_by_alias=True)
 async def get_group_policies(group_id: str) -> list[GroupPolicyMapping]:
     """Get all policies assigned to a group (direct, inherited, all users/devices)."""
     if not _policies_cache:
@@ -185,6 +188,60 @@ async def get_policy_groups(policy_id: str) -> list[dict[str, Any]]:
         enriched.append(entry)
 
     return enriched
+
+
+# ── Conflict analysis routes ─────────────────────────────────────────────────
+
+
+@app.get("/api/analyze-conflicts", response_model_by_alias=True)
+async def analyze_conflicts() -> dict[str, Any]:
+    """Analyze all policies for overlapping settings tenant-wide."""
+    if not _policies_cache:
+        raise HTTPException(
+            status_code=400,
+            detail="No policies cached — call GET /api/policies first",
+        )
+    all_policies = list(_policies_cache.values())
+    try:
+        conflicts = analyze_all_conflicts(all_policies)
+        stats = build_conflict_stats(conflicts)
+        return {
+            "conflicts": [c.model_dump(by_alias=True) for c in conflicts],
+            "stats": stats,
+        }
+    except Exception as e:
+        logger.error("Conflict analysis failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Conflict analysis failed: {e}")
+
+
+@app.get("/api/analyze-conflicts/group/{group_id}", response_model_by_alias=True)
+async def analyze_conflicts_for_group_route(group_id: str) -> dict[str, Any]:
+    """Analyze conflicts for policies targeting a specific group."""
+    if not _policies_cache:
+        raise HTTPException(
+            status_code=400,
+            detail="No policies cached — call GET /api/policies first",
+        )
+    client = _get_graph_client()
+    all_policies = list(_policies_cache.values())
+    try:
+        mappings = await resolve_policies_for_group(client, group_id, all_policies)
+        mappings_dicts = [m.model_dump(by_alias=True) for m in mappings]
+        conflicts = analyze_conflicts_for_group(group_id, all_policies, mappings_dicts)
+        stats = build_conflict_stats(conflicts)
+        return {
+            "conflicts": [c.model_dump(by_alias=True) for c in conflicts],
+            "stats": stats,
+        }
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        logger.error("Conflict analysis for group %s failed: %s", group_id, e)
+        raise HTTPException(
+            status_code=500, detail=f"Conflict analysis failed: {e}"
+        )
 
 
 # ── App lifecycle ────────────────────────────────────────────────────────────

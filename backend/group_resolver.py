@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from graph_client import GraphClient
 from models import (
@@ -56,7 +58,7 @@ async def search_groups(client: GraphClient, query: str) -> list[Group]:
             return []
 
 
-async def get_group(client: GraphClient, group_id: str) -> Group | None:
+async def get_group(client: GraphClient, group_id: str) -> Optional[Group]:
     """Get a single group by ID."""
     try:
         raw = await client.get_single(f"groups/{group_id}")

@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from graph_client import GraphClient
 from models import Policy, PolicyType
@@ -180,7 +182,7 @@ def _build_policy(
     )
 
 
-def _detect_platform(raw: dict[str, Any], policy_type: PolicyType) -> str | None:
+def _detect_platform(raw: dict[str, Any], policy_type: PolicyType) -> Optional[str]:
     # Try common platform fields
     for key in ("platformType", "platforms", "platform"):
         val = raw.get(key)

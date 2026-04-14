@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import List
+
 from pydantic_settings import BaseSettings
 
 
@@ -5,7 +9,7 @@ class Settings(BaseSettings):
     client_id: str = "14d82eec-204b-4c2f-b7e8-296a70dab67e"
     authority: str = "https://login.microsoftonline.com/common"
     graph_base_url: str = "https://graph.microsoft.com/beta"
-    scopes: list[str] = [
+    scopes: List[str] = [
         "DeviceManagementConfiguration.Read.All",
         "DeviceManagementManagedDevices.Read.All",
         "DeviceManagementServiceConfig.Read.All",

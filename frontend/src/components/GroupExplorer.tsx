@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import type { Policy, Group, GroupPolicyMapping } from '../types'
 import { POLICY_TYPES } from '../types'
 import { searchGroups, getGroupPolicies, getPolicyGroups } from '../services/api'
+import type { PolicyGroupTarget } from '../services/api'
 
 interface GroupExplorerProps {
   policies: Policy[]
@@ -63,7 +64,7 @@ function GroupToPolicies() {
   const [groups, setGroups] = useState<Group[]>([])
   const [searching, setSearching] = useState(false)
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
-  const [mapping, setMapping] = useState<GroupPolicyMapping | null>(null)
+  const [mappings, setMappings] = useState<GroupPolicyMapping[]>([])
   const [loadingPolicies, setLoadingPolicies] = useState(false)
   const [expandedPolicies, setExpandedPolicies] = useState<Set<string>>(new Set())
   const [collapsedTypes, setCollapsedTypes] = useState<Set<string>>(new Set())
@@ -95,9 +96,9 @@ function GroupToPolicies() {
     setExpandedPolicies(new Set())
     try {
       const data = await getGroupPolicies(group.id)
-      setMapping(data)
+      setMappings(data)
     } catch {
-      setMapping(null)
+      setMappings([])
     } finally {
       setLoadingPolicies(false)
     }
@@ -119,12 +120,22 @@ function GroupToPolicies() {
     })
   }
 
-  const policiesByType = mapping
-    ? POLICY_TYPES.map((pt) => ({
-        ...pt,
-        policies: mapping.policies.filter((p) => p.policyType === pt.key),
-      })).filter((t) => t.policies.length > 0)
-    : []
+  // Flatten all mappings into policies with their assignment source
+  const allPoliciesWithSource = mappings.flatMap((m) =>
+    m.policies.map((p) => ({ ...p, _source: m.assignmentSource }))
+  )
+
+  const sourceLabel: Record<string, string> = {
+    direct: 'Direct',
+    inherited: 'Inherited',
+    all_users: 'All Users',
+    all_devices: 'All Devices',
+  }
+
+  const policiesByType = POLICY_TYPES.map((pt) => ({
+    ...pt,
+    policies: allPoliciesWithSource.filter((p) => p.policyType === pt.key),
+  })).filter((t) => t.policies.length > 0)
 
   return (
     <div className="flex gap-6 h-[calc(100vh-16rem)]">
@@ -165,7 +176,7 @@ function GroupToPolicies() {
               }`}
             >
               <p className="text-sm font-medium truncate">{group.displayName}</p>
-              {group.memberCount !== null && (
+              {group.memberCount != null && (
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
                   {group.memberCount} members
                 </p>
@@ -189,14 +200,14 @@ function GroupToPolicies() {
           </div>
         )}
 
-        {selectedGroup && !loadingPolicies && mapping && (
+        {selectedGroup && !loadingPolicies && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">
                 {selectedGroup.displayName}
               </h2>
               <span className="text-sm text-gray-400 dark:text-gray-500">
-                {mapping.policies.length} policies
+                {allPoliciesWithSource.length} policies
               </span>
             </div>
 
@@ -230,7 +241,7 @@ function GroupToPolicies() {
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-gray-400">{expandedPolicies.has(policy.id) ? '▾' : '▸'}</span>
                             <span className="text-sm font-medium flex-1 truncate">{policy.displayName}</span>
-                            <AssignmentBadge source={mapping.assignmentSource ?? 'Direct'} />
+                            <AssignmentBadge source={sourceLabel[policy._source] ?? policy._source} />
                           </div>
                           {policy.description && (
                             <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 ml-5 truncate">
@@ -262,7 +273,7 @@ function GroupToPolicies() {
 function PolicyToGroups({ policies }: { policies: Policy[] }) {
   const [filter, setFilter] = useState('')
   const [selectedPolicy, setSelectedPolicy] = useState<Policy | null>(null)
-  const [targetGroups, setTargetGroups] = useState<Array<Group & { assignmentType: string; filter?: string }>>([])
+  const [targetGroups, setTargetGroups] = useState<PolicyGroupTarget[]>([])
   const [loading, setLoading] = useState(false)
 
   const filtered = policies.filter((p) =>
@@ -274,13 +285,19 @@ function PolicyToGroups({ policies }: { policies: Policy[] }) {
     setLoading(true)
     try {
       const data = await getPolicyGroups(policy.id)
-      setTargetGroups(data.groups)
+      setTargetGroups(data)
     } catch {
       setTargetGroups([])
     } finally {
       setLoading(false)
     }
   }, [])
+
+  const assignmentLabel = (type: string) => {
+    if (type === 'all_users') return 'All Users'
+    if (type === 'all_devices') return 'All Devices'
+    return type.charAt(0).toUpperCase() + type.slice(1)
+  }
 
   return (
     <div className="flex gap-6 h-[calc(100vh-16rem)]">
@@ -358,19 +375,18 @@ function PolicyToGroups({ policies }: { policies: Policy[] }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {targetGroups.map((g) => (
-                      <tr key={g.id} className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                    {targetGroups.map((g, idx) => (
+                      <tr key={g.group_id ?? `special-${idx}`} className="border-b border-gray-50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                         <td className="px-5 py-3">
-                          <p className="text-sm font-medium">{g.displayName}</p>
-                          {g.memberCount !== null && (
-                            <p className="text-xs text-gray-400 dark:text-gray-500">{g.memberCount} members</p>
-                          )}
+                          <p className="text-sm font-medium">
+                            {g.group_name ?? (g.group_id ? g.group_id : assignmentLabel(g.assignment_type))}
+                          </p>
                         </td>
                         <td className="px-5 py-3">
-                          <AssignmentTypeBadge type={g.assignmentType} />
+                          <AssignmentTypeBadge type={g.assignment_type} />
                         </td>
                         <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">
-                          {g.filter ?? '—'}
+                          {g.filter_type ?? '—'}
                         </td>
                       </tr>
                     ))}
