@@ -4,6 +4,7 @@ import { getAuthStatus, login, logout, fetchPolicies, fetchAllGroups } from './s
 import Dashboard from './components/Dashboard'
 import GroupExplorer from './components/GroupExplorer'
 import ConflictAnalyzer from './components/ConflictAnalyzer'
+import Optimization from './components/Optimization'
 
 type Tab = 'dashboard' | 'groupExplorer' | 'conflicts' | 'optimization'
 
@@ -263,7 +264,7 @@ export default function App() {
     { key: 'dashboard', label: 'Dashboard', disabled: false },
     { key: 'groupExplorer', label: 'Group Explorer', disabled: false },
     { key: 'conflicts', label: 'Conflict Analyser', disabled: false },
-    { key: 'optimization', label: 'Optimisation', disabled: true },
+    { key: 'optimization', label: 'Optimisation', disabled: false },
   ]
 
   const dataLoaded = policies.length > 0
@@ -425,6 +426,9 @@ export default function App() {
             )}
             {activeTab === 'conflicts' && (
               <ConflictAnalyzer policies={policies} groups={groups} />
+            )}
+            {activeTab === 'optimization' && (
+              <Optimization isReady={dataLoaded} />
             )}
           </main>
         </>

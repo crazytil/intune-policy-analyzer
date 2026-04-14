@@ -1,4 +1,10 @@
-import type { AuthStatus, Policy, Group, GroupPolicyMapping } from '../types'
+import type {
+  AuthStatus,
+  Group,
+  GroupPolicyMapping,
+  OptimizationAnalysisResult,
+  Policy,
+} from '../types'
 
 const BASE = '/api'
 const inflightRequests = new Map<string, Promise<unknown>>()
@@ -161,4 +167,13 @@ export async function analyzeConflictsForTarget(
   appendPlatformFilters(params, options?.platforms)
   const qs = params.toString()
   return request<ConflictAnalysisResult>(`${BASE}/analyze-conflicts/target/${target}${qs ? `?${qs}` : ''}`)
+}
+
+export async function analyzeOptimization(
+  options?: { platforms?: string[] },
+): Promise<OptimizationAnalysisResult> {
+  const params = new URLSearchParams()
+  appendPlatformFilters(params, options?.platforms)
+  const qs = params.toString()
+  return request<OptimizationAnalysisResult>(`${BASE}/optimize${qs ? `?${qs}` : ''}`)
 }

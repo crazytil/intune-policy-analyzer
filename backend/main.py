@@ -20,7 +20,8 @@ from group_resolver import (
     search_groups,
 )
 from conflict_analyzer import analyze_all_conflicts, analyze_conflicts_for_group, analyze_conflicts_for_policy, analyze_conflicts_for_target, build_conflict_stats
-from models import AuthStatus, GroupPolicyMapping, Policy
+from models import AuthStatus, GroupPolicyMapping, OptimizationAnalysisResult, Policy
+from optimization_engine import analyze_optimization_opportunities
 from policy_fetcher import fetch_all_policies
 
 logging.basicConfig(
@@ -29,7 +30,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Intune Policy Analyzer", version="0.1.0")
+app = FastAPI(title="Intune Policy Analyzer", version="0.1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -406,6 +407,25 @@ async def analyze_conflicts_for_policy_route(
         raise HTTPException(
             status_code=500, detail=f"Conflict analysis failed: {e}"
         )
+
+
+@app.get("/api/optimize", response_model=OptimizationAnalysisResult, response_model_by_alias=True)
+async def analyze_optimization_route(
+    platform: Optional[list[str]] = Query(None),
+) -> OptimizationAnalysisResult:
+    """Analyze read-only policy consolidation and fragmentation opportunities."""
+    try:
+        await _ensure_policies_loaded()
+        all_policies = list(_policies_cache.values())
+        return analyze_optimization_opportunities(
+            all_policies,
+            selected_platforms=_normalize_platform_filters(platform),
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        logger.error("Optimization analysis failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Optimization analysis failed: {e}")
 
 
 # ── App lifecycle ────────────────────────────────────────────────────────────

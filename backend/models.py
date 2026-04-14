@@ -116,6 +116,55 @@ class OptimizationFinding(BaseModel):
     affected_policies: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class OptimizationRecommendationType(str, Enum):
+    CONSOLIDATION_CANDIDATE = "consolidationCandidate"
+    FRAGMENTATION_HOTSPOT = "fragmentationHotspot"
+
+
+class OptimizationPolicyPreview(BaseModel):
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+    policy_id: str
+    policy_name: str
+    policy_type: str
+    platform: str | None = None
+    setting_count: int = 0
+
+
+class OptimizationFindingV1(BaseModel):
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+    recommendation_type: OptimizationRecommendationType
+    title: str
+    summary: str
+    rationale: str
+    domain: str
+    audience: str
+    platforms: list[str] = Field(default_factory=list)
+    confidence_score: int
+    impact_score: int
+    policy_count: int
+    shared_setting_count: int
+    unique_setting_count: int
+    matching_setting_count: int
+    conflict_count: int
+    example_settings: list[str] = Field(default_factory=list)
+    policies: list[OptimizationPolicyPreview] = Field(default_factory=list)
+
+
+class OptimizationSummary(BaseModel):
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+    total_findings: int = 0
+    consolidation_candidates: int = 0
+    fragmentation_hotspots: int = 0
+    domains: list[str] = Field(default_factory=list)
+    platforms: list[str] = Field(default_factory=list)
+
+
+class OptimizationAnalysisResult(BaseModel):
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+    summary: OptimizationSummary
+    findings: list[OptimizationFindingV1] = Field(default_factory=list)
+
+
 class AuthStatus(BaseModel):
     model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
     is_authenticated: bool = False

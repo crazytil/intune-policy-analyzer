@@ -32,6 +32,46 @@ export interface AuthStatus {
   tenantId: string | null
 }
 
+export interface OptimizationPolicyPreview {
+  policyId: string
+  policyName: string
+  policyType: string
+  platform: string | null
+  settingCount: number
+}
+
+export interface OptimizationFinding {
+  recommendationType: 'consolidationCandidate' | 'fragmentationHotspot'
+  title: string
+  summary: string
+  rationale: string
+  domain: string
+  audience: string
+  platforms: string[]
+  confidenceScore: number
+  impactScore: number
+  policyCount: number
+  sharedSettingCount: number
+  uniqueSettingCount: number
+  matchingSettingCount: number
+  conflictCount: number
+  exampleSettings: string[]
+  policies: OptimizationPolicyPreview[]
+}
+
+export interface OptimizationSummary {
+  totalFindings: number
+  consolidationCandidates: number
+  fragmentationHotspots: number
+  domains: string[]
+  platforms: string[]
+}
+
+export interface OptimizationAnalysisResult {
+  summary: OptimizationSummary
+  findings: OptimizationFinding[]
+}
+
 export interface PolicyTypeInfo {
   key: string
   label: string
