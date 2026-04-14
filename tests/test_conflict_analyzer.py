@@ -10,6 +10,7 @@ from conflict_analyzer import (
     _extract_settings,
     _format_value_display,
     _format_value_path,
+    _normalize_value,
     _resolve_catalog_setting_key,
     _resolve_catalog_value_display,
     analyze_all_conflicts,
@@ -354,6 +355,11 @@ class ConflictAnalyzerBehaviorTests(unittest.TestCase):
         )
 
         self.assertEqual(_extract_settings(oma_policy), [])
+
+    def test_treats_placeholder_values_as_not_configured(self) -> None:
+        self.assertIsNone(_normalize_value("userDefined"))
+        self.assertIsNone(_normalize_value("deviceDefault"))
+        self.assertIsNone(_normalize_value("0001-01-01T00:00:00Z"))
 
 
 if __name__ == "__main__":

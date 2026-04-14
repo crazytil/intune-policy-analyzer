@@ -1,6 +1,60 @@
 #!/bin/bash
 # Start both backend and frontend servers
 
+set -u
+
+BACKEND_PID=""
+FRONTEND_PID=""
+SHUTTING_DOWN=0
+
+kill_tree() {
+  local pid="$1"
+  [ -n "$pid" ] || return 0
+  kill -0 "$pid" 2>/dev/null || return 0
+
+  local children
+  children=$(pgrep -P "$pid" 2>/dev/null || true)
+  for child in $children; do
+    kill_tree "$child"
+  done
+
+  kill "$pid" 2>/dev/null || true
+}
+
+wait_for_exit() {
+  local pid="$1"
+  [ -n "$pid" ] || return 0
+
+  local attempt=0
+  while kill -0 "$pid" 2>/dev/null; do
+    attempt=$((attempt + 1))
+    if [ "$attempt" -ge 20 ]; then
+      kill -9 "$pid" 2>/dev/null || true
+      break
+    fi
+    sleep 0.2
+  done
+}
+
+cleanup() {
+  if [ "$SHUTTING_DOWN" -eq 1 ]; then
+    return
+  fi
+  SHUTTING_DOWN=1
+
+  echo ""
+  echo "Shutting down..."
+
+  kill_tree "${BACKEND_PID:-}"
+  kill_tree "${FRONTEND_PID:-}"
+
+  wait_for_exit "${BACKEND_PID:-}"
+  wait_for_exit "${FRONTEND_PID:-}"
+
+  wait "${BACKEND_PID:-}" 2>/dev/null || true
+  wait "${FRONTEND_PID:-}" 2>/dev/null || true
+}
+
 echo "Starting Intune Policy Analyzer..."
 echo ""
 
@@ -26,8 +80,9 @@ echo "  Backend:  http://localhost:8099"
 echo ""
 echo "Press Ctrl+C to stop both servers."
 
-# Trap Ctrl+C to kill both processes
-trap "echo ''; echo 'Shutting down...'; kill $BACKEND_PID $FRONTEND_PID 2>/dev/null; exit 0" SIGINT SIGTERM
+# Trap Ctrl+C to kill both processes and any child processes they spawned
+trap 'cleanup; exit 0' SIGINT SIGTERM
+trap 'cleanup' EXIT
 
-# Wait for either process to exit
-wait
+# Wait until either process exits, then stop the other one too.
+wait "$BACKEND_PID" "$FRONTEND_PID"

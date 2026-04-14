@@ -295,7 +295,9 @@ def _format_value_display(value: Any) -> str:
             return "Enabled"
         if low in ("false", "no"):
             return "Disabled"
-        if low == "notconfigured":
+        if low in ("notconfigured", "userdefined", "devicedefault"):
+            return "Not Configured"
+        if value == "0001-01-01T00:00:00Z":
             return "Not Configured"
         decoded = _decode_settings_catalog_value(value)
         if decoded:
@@ -329,7 +331,9 @@ def _normalize_value(value: Any) -> Any:
             return True
         if low in ("false", "no"):
             return False
-        if low == "notconfigured":
+        if low in ("notconfigured", "userdefined", "devicedefault"):
+            return None
+        if value == "0001-01-01T00:00:00Z":
             return None
         return value
     if isinstance(value, list):
