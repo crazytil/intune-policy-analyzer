@@ -319,6 +319,32 @@ class ConflictAnalyzerBehaviorTests(unittest.TestCase):
 
         self.assertEqual(analyze_all_conflicts([policy_a, policy_b]), [])
 
+    def test_ignores_default_like_false_booleans_from_windows10_general_configuration(self) -> None:
+        control_panel_policy = Policy(
+            id="dc-control-panel",
+            display_name="Corp-Win11-Azure - Control Panel Policy",
+            policy_type=PolicyType.DEVICE_CONFIGURATION,
+            platform="windows",
+            assignments=[{"target": {"groupId": "group-1"}}],
+            raw={
+                "@odata.type": "#microsoft.graph.windows10GeneralConfiguration",
+                "edgeBlocked": False,
+            },
+        )
+        edge_policy = Policy(
+            id="dc-edge",
+            display_name="Edge Policy",
+            policy_type=PolicyType.DEVICE_CONFIGURATION,
+            platform="windows",
+            assignments=[{"target": {"groupId": "group-1"}}],
+            raw={
+                "@odata.type": "#microsoft.graph.windows10GeneralConfiguration",
+                "edgeBlocked": True,
+            },
+        )
+
+        self.assertEqual(analyze_all_conflicts([control_panel_policy, edge_policy]), [])
+
     def test_ignores_wifi_profile_payloads(self) -> None:
         wifi_policy = Policy(
             id="wifi-1",

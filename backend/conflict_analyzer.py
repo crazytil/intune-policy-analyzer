@@ -213,6 +213,10 @@ _RAW_PROFILE_SKIP_MARKERS = (
     "omaconfiguration",
 )
 
+_RAW_SCHEMA_FALSEY_DEFAULT_SKIP = {
+    "windows10GeneralConfiguration",
+}
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -379,6 +383,8 @@ def _extract_raw_settings(policy: Policy, prefix: str) -> List[Dict[str, Any]]:
             continue
         norm = _normalize_value(value)
         if norm is None:
+            continue
+        if raw_schema in _RAW_SCHEMA_FALSEY_DEFAULT_SKIP and norm is False:
             continue
         setting_key = (
             f"{prefix}:{raw_schema}|{key}"
