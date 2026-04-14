@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from models import Policy, PolicyType
-from optimization_engine import analyze_optimization_opportunities
+from optimization_engine import _classify_domain, analyze_optimization_opportunities
 
 
 def _assignment(group_id: str) -> dict[str, object]:
@@ -20,6 +20,33 @@ def _assignment(group_id: str) -> dict[str, object]:
 
 
 class OptimizationEngineTests(unittest.TestCase):
+    def test_classifies_control_panel_domain_from_setting_label(self) -> None:
+        self.assertEqual(
+            _classify_domain(
+                "deviceConfiguration:windows10GeneralConfiguration|bluetoothBlocked",
+                "Control Panel Visibility",
+            ),
+            "Control Panel",
+        )
+
+    def test_classifies_connectivity_domain_from_setting_key(self) -> None:
+        self.assertEqual(
+            _classify_domain(
+                "deviceConfiguration:windows10GeneralConfiguration|bluetoothBlocked",
+                "Block Bluetooth",
+            ),
+            "Connectivity",
+        )
+
+    def test_classifies_privacy_domain_from_setting_key(self) -> None:
+        self.assertEqual(
+            _classify_domain(
+                "deviceConfiguration:windows10GeneralConfiguration|diagnosticDataBlockSubmission",
+                "Block Diagnostic Data Submission",
+            ),
+            "Privacy",
+        )
+
     def test_emits_consolidation_candidate_for_same_domain_same_audience(self) -> None:
         policies = [
             Policy(
@@ -249,6 +276,41 @@ class OptimizationEngineTests(unittest.TestCase):
 
         self.assertEqual(result.summary.total_findings, 1)
         self.assertEqual(result.findings[0].audience, "group-99")
+
+    def test_ignores_default_like_legacy_device_configuration_values(self) -> None:
+        policies = [
+            Policy(
+                id="dc-1",
+                display_name="Corp-Win11-Azure - Control Panel Policy",
+                policy_type=PolicyType.DEVICE_CONFIGURATION,
+                platform="windows",
+                assignments=[_assignment("group-1")],
+                raw={
+                    "@odata.type": "#microsoft.graph.windows10GeneralConfiguration",
+                    "bluetoothBlocked": False,
+                    "diagnosticDataBlockSubmission": False,
+                },
+            ),
+            Policy(
+                id="dc-2",
+                display_name="Wallpaper Policy",
+                policy_type=PolicyType.DEVICE_CONFIGURATION,
+                platform="windows",
+                assignments=[_assignment("group-1")],
+                raw={
+                    "@odata.type": "#microsoft.graph.windows10GeneralConfiguration",
+                    "bluetoothBlocked": False,
+                    "diagnosticDataBlockSubmission": False,
+                },
+            ),
+        ]
+
+        result = analyze_optimization_opportunities(
+            policies,
+            group_name_by_id={"group-1": "Windows Devices"},
+        )
+
+        self.assertEqual(result.summary.total_findings, 0)
 
 
 if __name__ == "__main__":
