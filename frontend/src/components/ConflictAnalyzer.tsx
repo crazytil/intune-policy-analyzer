@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import type { Policy, Group } from '../types'
 import { POLICY_TYPES } from '../types'
 import { analyzeConflicts, analyzeConflictsForGroup, analyzeConflictsForPolicy, analyzeConflictsForTarget } from '../services/api'
@@ -71,11 +71,6 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
       ? policies.find((p) => p.id === selectedPolicyId)?.displayName
       : null
 
-  const canAnalyze =
-    scopeMode === 'all' ||
-    (scopeMode === 'group' && selectedGroupId) ||
-    (scopeMode === 'policy' && selectedPolicyId)
-
   const handleAnalyze = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -99,6 +94,25 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
       setLoading(false)
     }
   }, [scopeMode, selectedGroupId, selectedPolicyId, isSpecialTarget])
+
+  // Auto-analyze when scope changes
+  useEffect(() => {
+    if (scopeMode === 'all') {
+      handleAnalyze()
+    }
+  }, [scopeMode]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (scopeMode === 'group' && selectedGroupId) {
+      handleAnalyze()
+    }
+  }, [selectedGroupId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (scopeMode === 'policy' && selectedPolicyId) {
+      handleAnalyze()
+    }
+  }, [selectedPolicyId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleRow = (key: string) => {
     setExpandedRows((prev) => {
@@ -264,28 +278,18 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
           </div>
         )}
 
-        {/* Analyze button + scope label */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleAnalyze}
-            disabled={loading || !canAnalyze}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-          >
-            {loading ? (
-              <>
-                <Spinner className="h-4 w-4" />
-                Analyzing…
-              </>
-            ) : (
-              hasAnalyzed ? '↻ Re-analyze' : 'Analyze Overlapping Settings'
-            )}
-          </button>
-          {scopeLabel && (
-            <span className="text-sm text-gray-500 dark:text-gray-400">
-              Scope: <span className="font-medium text-gray-700 dark:text-gray-200">{scopeLabel}</span>
-            </span>
-          )}
-        </div>
+        {/* Loading indicator */}
+        {loading && (
+          <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+            <Spinner className="h-4 w-4" />
+            Analyzing{scopeLabel ? ` "${scopeLabel}"` : ''}…
+          </div>
+        )}
+        {scopeLabel && !loading && (
+          <p className="text-xs text-gray-400 dark:text-gray-500">
+            Showing overlaps for: <span className="font-medium text-gray-600 dark:text-gray-300">{scopeLabel}</span>
+          </p>
+        )}
       </div>
 
       {/* Result filter controls */}
@@ -331,20 +335,19 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
       )}
 
       {/* Empty states */}
-      {!hasAnalyzed && !loading && (
+      {!hasAnalyzed && !loading && scopeMode !== 'all' && (
         <div className="text-center py-16 text-gray-400 dark:text-gray-500">
-          <p className="text-lg mb-2">🔍</p>
-          <p className="text-sm">Click &ldquo;Analyze Overlapping Settings&rdquo; to scan all policies for overlapping settings</p>
-          {policies.length === 0 && (
-            <p className="text-xs mt-2 text-gray-300 dark:text-gray-600">Load policies from the Dashboard first</p>
-          )}
+          <p className="text-lg mb-2">👆</p>
+          <p className="text-sm">
+            {scopeMode === 'group' ? 'Select a group to analyze its overlapping settings' : 'Select a policy to find its overlapping settings'}
+          </p>
         </div>
       )}
 
-      {loading && !hasAnalyzed && (
+      {loading && (
         <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400 dark:text-gray-500">
           <Spinner className="h-8 w-8 text-blue-500" />
-          <p className="text-sm">Analyzing policies…</p>
+          <p className="text-sm">Analyzing{scopeLabel ? ` "${scopeLabel}"` : ' all policies'}…</p>
         </div>
       )}
 
