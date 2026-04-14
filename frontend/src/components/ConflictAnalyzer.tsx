@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react'
 import type { Policy, Group } from '../types'
 import { POLICY_TYPES } from '../types'
-import { analyzeConflicts, analyzeConflictsForGroup, analyzeConflictsForPolicy } from '../services/api'
+import { analyzeConflicts, analyzeConflictsForGroup, analyzeConflictsForPolicy, analyzeConflictsForTarget } from '../services/api'
 import type { ConflictItem, ConflictStats } from '../services/api'
 
 interface ConflictAnalyzerProps {
@@ -61,8 +61,12 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
     ? policies.filter((p) => p.displayName.toLowerCase().includes(policyFilter.toLowerCase()))
     : policies
 
+  const isSpecialTarget = selectedGroupId === 'all_users' || selectedGroupId === 'all_devices'
+
   const scopeLabel = scopeMode === 'group'
-    ? groups.find((g) => g.id === selectedGroupId)?.displayName
+    ? (selectedGroupId === 'all_users' ? 'All Users'
+      : selectedGroupId === 'all_devices' ? 'All Devices'
+      : groups.find((g) => g.id === selectedGroupId)?.displayName)
     : scopeMode === 'policy'
       ? policies.find((p) => p.id === selectedPolicyId)?.displayName
       : null
@@ -78,7 +82,9 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
     setExpandedRows(new Set())
     try {
       let result
-      if (scopeMode === 'group' && selectedGroupId) {
+      if (scopeMode === 'group' && isSpecialTarget) {
+        result = await analyzeConflictsForTarget(selectedGroupId as 'all_users' | 'all_devices')
+      } else if (scopeMode === 'group' && selectedGroupId) {
         result = await analyzeConflictsForGroup(selectedGroupId)
       } else if (scopeMode === 'policy' && selectedPolicyId) {
         result = await analyzeConflictsForPolicy(selectedPolicyId)
@@ -92,7 +98,7 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
     } finally {
       setLoading(false)
     }
-  }, [scopeMode, selectedGroupId, selectedPolicyId])
+  }, [scopeMode, selectedGroupId, selectedPolicyId, isSpecialTarget])
 
   const toggleRow = (key: string) => {
     setExpandedRows((prev) => {
@@ -177,6 +183,32 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
               className="w-full max-w-md px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
             />
             <div className="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-700/50">
+              {/* Special targets */}
+              {(!groupFilter.trim() || 'all users'.includes(groupFilter.toLowerCase())) && (
+                <button
+                  onClick={() => setSelectedGroupId('all_users')}
+                  className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                    selectedGroupId === 'all_users'
+                      ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
+                      : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
+                  }`}
+                >
+                  <span className="mr-1.5">👥</span> All Users
+                </button>
+              )}
+              {(!groupFilter.trim() || 'all devices'.includes(groupFilter.toLowerCase())) && (
+                <button
+                  onClick={() => setSelectedGroupId('all_devices')}
+                  className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                    selectedGroupId === 'all_devices'
+                      ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
+                      : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
+                  }`}
+                >
+                  <span className="mr-1.5">💻</span> All Devices
+                </button>
+              )}
+              {/* Regular groups */}
               {filteredGroups.slice(0, 50).map((g) => (
                 <button
                   key={g.id}
@@ -190,7 +222,7 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
                   {g.displayName}
                 </button>
               ))}
-              {filteredGroups.length === 0 && (
+              {filteredGroups.length === 0 && groupFilter.trim() && !('all users'.includes(groupFilter.toLowerCase()) || 'all devices'.includes(groupFilter.toLowerCase())) && (
                 <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">No groups match</p>
               )}
             </div>

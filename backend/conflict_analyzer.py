@@ -601,6 +601,31 @@ def analyze_conflicts_for_group(
     return _build_conflicts(targeted)
 
 
+def analyze_conflicts_for_target(
+    target: str, all_policies: List[Policy]
+) -> List[ConflictItem]:
+    """Find conflicts among policies assigned to a special target ('all_users' or 'all_devices')."""
+    if target == "all_users":
+        odata_match = "allLicensedUsers"
+    elif target == "all_devices":
+        odata_match = "allDevices"
+    else:
+        return []
+
+    targeted: List[Policy] = []
+    for policy in all_policies:
+        for assignment in policy.assignments:
+            t = assignment.get("target", {})
+            if odata_match in t.get("@odata.type", ""):
+                targeted.append(policy)
+                break
+
+    if len(targeted) < 2:
+        return []
+
+    return _build_conflicts(targeted)
+
+
 def analyze_conflicts_for_policy(
     policy_id: str, all_policies: List[Policy]
 ) -> List[ConflictItem]:
