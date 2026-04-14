@@ -7,6 +7,38 @@ import ConflictAnalyzer from './components/ConflictAnalyzer'
 
 type Tab = 'dashboard' | 'groupExplorer' | 'conflicts' | 'optimization'
 
+const CACHE_KEY = 'intune-policies-cache'
+
+interface PolicyCache {
+  tenantId: string
+  userName: string
+  policies: Policy[]
+  timestamp: number
+}
+
+function loadCachedPolicies(tenantId: string, userName: string): PolicyCache | null {
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY)
+    if (!raw) return null
+    const cache: PolicyCache = JSON.parse(raw)
+    if (cache.tenantId === tenantId && cache.userName === userName && cache.policies.length > 0) {
+      return cache
+    }
+  } catch { /* ignore */ }
+  return null
+}
+
+function savePoliciesCache(tenantId: string, userName: string, policies: Policy[]) {
+  try {
+    const cache: PolicyCache = { tenantId, userName, policies, timestamp: Date.now() }
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify(cache))
+  } catch { /* ignore - storage full */ }
+}
+
+function clearPoliciesCache() {
+  try { sessionStorage.removeItem(CACHE_KEY) } catch { /* ignore */ }
+}
+
 export default function App() {
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -19,6 +51,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard')
   const [policies, setPolicies] = useState<Policy[]>([])
   const [policiesLoading, setPoliciesLoading] = useState(false)
+  const [policiesLoadedAt, setPoliciesLoadedAt] = useState<number | null>(null)
+  const [fromCache, setFromCache] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -42,10 +76,17 @@ export default function App() {
       .finally(() => setAuthLoading(false))
   }, [])
 
-  // Auto-load policies when authenticated and none loaded
+  // Auto-load policies when authenticated: try cache first, then fetch
   useEffect(() => {
     if (auth?.isAuthenticated && policies.length === 0 && !policiesLoading) {
-      handleLoadPolicies()
+      const cached = loadCachedPolicies(auth.tenantId ?? '', auth.userName ?? '')
+      if (cached) {
+        setPolicies(cached.policies)
+        setPoliciesLoadedAt(cached.timestamp)
+        setFromCache(true)
+      } else {
+        handleLoadPolicies()
+      }
     }
   }, [auth?.isAuthenticated]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -64,6 +105,8 @@ export default function App() {
       await logout()
       setAuth({ isAuthenticated: false, userName: null, tenantId: null })
       setPolicies([])
+      setPoliciesLoadedAt(null)
+      clearPoliciesCache()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Logout failed')
     }
@@ -71,16 +114,22 @@ export default function App() {
 
   const handleLoadPolicies = useCallback(async () => {
     setPoliciesLoading(true)
+    setFromCache(false)
     setError(null)
     try {
       const data = await fetchPolicies()
       setPolicies(data)
+      const now = Date.now()
+      setPoliciesLoadedAt(now)
+      if (auth?.tenantId && auth?.userName) {
+        savePoliciesCache(auth.tenantId, auth.userName, data)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load policies')
     } finally {
       setPoliciesLoading(false)
     }
-  }, [])
+  }, [auth?.tenantId, auth?.userName])
 
   const tabs: { key: Tab; label: string; disabled: boolean }[] = [
     { key: 'dashboard', label: 'Dashboard', disabled: false },
@@ -212,6 +261,8 @@ export default function App() {
                 policies={policies}
                 loading={policiesLoading}
                 onLoadPolicies={handleLoadPolicies}
+                loadedAt={policiesLoadedAt}
+                fromCache={fromCache}
               />
             )}
             {activeTab === 'groupExplorer' && (

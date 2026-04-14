@@ -5,6 +5,18 @@ interface DashboardProps {
   policies: Policy[]
   loading: boolean
   onLoadPolicies: () => void
+  loadedAt: number | null
+  fromCache: boolean
+}
+
+function timeAgo(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000)
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ${minutes % 60}m ago`
+  return new Date(timestamp).toLocaleString()
 }
 
 function Spinner() {
@@ -26,7 +38,7 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
   )
 }
 
-export default function Dashboard({ policies, loading, onLoadPolicies }: DashboardProps) {
+export default function Dashboard({ policies, loading, onLoadPolicies, loadedAt, fromCache }: DashboardProps) {
   const loaded = policies.length > 0
 
   const typeCounts = POLICY_TYPES.map((pt) => {
@@ -90,16 +102,26 @@ export default function Dashboard({ policies, loading, onLoadPolicies }: Dashboa
         </div>
       )}
 
-      {/* Reload button when loaded */}
+      {/* Cache status + Refresh button */}
       {loaded && (
-        <div className="flex justify-end">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm text-gray-400 dark:text-gray-500">
+            {fromCache && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 text-xs font-medium rounded">
+                ⚡ Cached
+              </span>
+            )}
+            {loadedAt && (
+              <span>Loaded {timeAgo(loadedAt)}</span>
+            )}
+          </div>
           <button
             onClick={onLoadPolicies}
             disabled={loading}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-60 transition-colors"
           >
             {loading ? <Spinner /> : '↻'}
-            Refresh
+            {loading ? 'Refreshing…' : 'Refresh Policies'}
           </button>
         </div>
       )}
