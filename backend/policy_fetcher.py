@@ -97,8 +97,7 @@ async def _fetch_settings(
             categories = await client.get(
                 f"{endpoint}/{policy_id}/categories"
             )
-            all_settings: list[dict[str, Any]] = []
-            for category in categories:
+            async def fetch_category_settings(category: dict[str, Any]) -> list[dict[str, Any]]:
                 cat_id = category.get("id", "")
                 cat_settings = await client.get(
                     f"{endpoint}/{policy_id}/categories/{cat_id}/settings"
@@ -106,7 +105,14 @@ async def _fetch_settings(
                 for s in cat_settings:
                     s["_categoryId"] = cat_id
                     s["_categoryDisplayName"] = category.get("displayName", "")
-                all_settings.extend(cat_settings)
+                return cat_settings
+
+            category_results = await asyncio.gather(
+                *(fetch_category_settings(category) for category in categories)
+            )
+            all_settings: list[dict[str, Any]] = []
+            for category_settings in category_results:
+                all_settings.extend(category_settings)
             return all_settings
         elif policy_type in (PolicyType.SETTINGS_CATALOG, PolicyType.COMPLIANCE_V2):
             return await client.get(
@@ -222,31 +228,38 @@ async def _fetch_policy_type(
         logger.error("Failed to fetch %s: %s", policy_type.value, e)
         return []
 
-    policies: list[Policy] = []
-
-    for raw in raw_policies:
+    async def fetch_policy_details(raw: dict[str, Any]) -> Policy:
         policy_id = raw.get("id", "")
 
         # Fetch assignments
         if config["has_assignments"]:
-            assignments = await _fetch_assignments(client, endpoint, policy_id)
+            assignments_task = _fetch_assignments(client, endpoint, policy_id)
         else:
             # Conditional Access — extract from inline conditions
-            assignments = _extract_conditional_access_assignments(raw)
+            assignments_task = None
 
         # Fetch additional settings if needed
-        extra_settings: list[dict[str, Any]] = []
+        settings_task = None
         if config["settings_endpoint"]:
-            extra_settings = await _fetch_settings(
+            settings_task = _fetch_settings(
                 client, endpoint, policy_id, policy_type, config["settings_endpoint"]
             )
 
-        policies.append(
-            _build_policy(raw, policy_type, assignments, extra_settings)
+        assignments = (
+            await assignments_task
+            if assignments_task is not None
+            else _extract_conditional_access_assignments(raw)
         )
+        extra_settings = await settings_task if settings_task is not None else []
+
+        return _build_policy(raw, policy_type, assignments, extra_settings)
+
+    policies = await asyncio.gather(
+        *(fetch_policy_details(raw) for raw in raw_policies)
+    )
 
     logger.info("Fetched %d %s policies", len(policies), policy_type.value)
-    return policies
+    return list(policies)
 
 
 async def fetch_all_policies(client: GraphClient) -> list[Policy]:

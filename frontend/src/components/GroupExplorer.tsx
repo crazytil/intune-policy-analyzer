@@ -67,6 +67,8 @@ function GroupToPolicies({ groups }: { groups: Group[] }) {
   const [loadingPolicies, setLoadingPolicies] = useState(false)
   const [expandedPolicies, setExpandedPolicies] = useState<Set<string>>(new Set())
   const [collapsedTypes, setCollapsedTypes] = useState<Set<string>>(new Set())
+  const [includeAllUsers, setIncludeAllUsers] = useState(true)
+  const [includeAllDevices, setIncludeAllDevices] = useState(true)
 
   // Client-side filter
   const filtered = query.trim()
@@ -75,12 +77,17 @@ function GroupToPolicies({ groups }: { groups: Group[] }) {
       )
     : groups
 
-  const handleSelectGroup = useCallback(async (group: Group) => {
-    setSelectedGroup(group)
+  const fetchPoliciesForGroup = useCallback(async (
+    group: Group,
+    allUsers: boolean,
+    allDevices: boolean,
+  ) => {
     setLoadingPolicies(true)
-    setExpandedPolicies(new Set())
     try {
-      const data = await getGroupPolicies(group.id)
+      const data = await getGroupPolicies(group.id, {
+        includeAllUsers: allUsers,
+        includeAllDevices: allDevices,
+      })
       setMappings(data)
     } catch {
       setMappings([])
@@ -88,6 +95,26 @@ function GroupToPolicies({ groups }: { groups: Group[] }) {
       setLoadingPolicies(false)
     }
   }, [])
+
+  const handleSelectGroup = useCallback(async (group: Group) => {
+    setSelectedGroup(group)
+    setExpandedPolicies(new Set())
+    await fetchPoliciesForGroup(group, includeAllUsers, includeAllDevices)
+  }, [fetchPoliciesForGroup, includeAllUsers, includeAllDevices])
+
+  const handleToggleAllUsers = useCallback(async (checked: boolean) => {
+    setIncludeAllUsers(checked)
+    if (selectedGroup) {
+      await fetchPoliciesForGroup(selectedGroup, checked, includeAllDevices)
+    }
+  }, [selectedGroup, includeAllDevices, fetchPoliciesForGroup])
+
+  const handleToggleAllDevices = useCallback(async (checked: boolean) => {
+    setIncludeAllDevices(checked)
+    if (selectedGroup) {
+      await fetchPoliciesForGroup(selectedGroup, includeAllUsers, checked)
+    }
+  }, [selectedGroup, includeAllUsers, fetchPoliciesForGroup])
 
   const togglePolicy = (id: string) => {
     setExpandedPolicies((prev) => {
@@ -190,6 +217,27 @@ function GroupToPolicies({ groups }: { groups: Group[] }) {
               <span className="text-sm text-gray-400 dark:text-gray-500">
                 {allPoliciesWithSource.length} policies
               </span>
+            </div>
+
+            <div className="flex items-center gap-5">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={includeAllUsers}
+                  onChange={(e) => handleToggleAllUsers(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-600 dark:text-gray-300">Include All Users</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={includeAllDevices}
+                  onChange={(e) => handleToggleAllDevices(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-600 dark:text-gray-300">Include All Devices</span>
+              </label>
             </div>
 
             {policiesByType.length === 0 && (

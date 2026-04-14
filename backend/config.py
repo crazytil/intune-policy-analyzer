@@ -19,6 +19,9 @@ class Settings(BaseSettings):
         "Policy.Read.All",
     ]
     max_concurrent_requests: int = 4
+    policies_cache_ttl_seconds: int = 900
+    groups_cache_ttl_seconds: int = 900
+    group_membership_cache_ttl_seconds: int = 600
     token_cache_file: str = ".token_cache.json"
     backend_port: int = 8099
 

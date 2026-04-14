@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { AuthStatus, Policy, Group } from './types'
 import { getAuthStatus, login, logout, fetchPolicies, fetchAllGroups } from './services/api'
 import Dashboard from './components/Dashboard'
@@ -9,23 +9,45 @@ type Tab = 'dashboard' | 'groupExplorer' | 'conflicts' | 'optimization'
 
 const POLICY_CACHE_KEY = 'intune-policies-cache'
 const GROUP_CACHE_KEY = 'intune-groups-cache'
+const CACHE_VERSION = 2
 
 interface DataCache<T> {
+  version: number
   tenantId: string
   userName: string
   data: T
   timestamp: number
 }
 
+const CACHE_MAX_AGE_MS = 30 * 60 * 1000 // 30 minutes
+
+function getStorageCandidates(): Storage[] {
+  if (typeof window === 'undefined') return []
+  return [window.localStorage, window.sessionStorage]
+}
+
 function loadCache<T>(key: string, tenantId: string, userName: string): DataCache<T> | null {
-  try {
-    const raw = sessionStorage.getItem(key)
-    if (!raw) return null
-    const cache: DataCache<T> = JSON.parse(raw)
-    if (cache.tenantId === tenantId && cache.userName === userName) {
-      return cache
+  for (const storage of getStorageCandidates()) {
+    try {
+      const raw = storage.getItem(key)
+      if (!raw) continue
+      const cache: DataCache<T> = JSON.parse(raw)
+      if (cache.version !== CACHE_VERSION) {
+        storage.removeItem(key)
+        continue
+      }
+
+      if (cache.tenantId === tenantId && cache.userName === userName) {
+        if (Date.now() - cache.timestamp > CACHE_MAX_AGE_MS) {
+          storage.removeItem(key)
+          return null
+        }
+        return cache
+      }
+    } catch {
+      /* ignore */
     }
-  } catch { /* ignore */ }
+  }
   return null
 }
 
@@ -34,20 +56,32 @@ function stripRawForCache(policies: Policy[]): Policy[] {
 }
 
 function saveCache<T>(key: string, tenantId: string, userName: string, data: T) {
-  try {
-    const cache: DataCache<T> = { tenantId, userName, data, timestamp: Date.now() }
-    sessionStorage.setItem(key, JSON.stringify(cache))
-  } catch {
-    // Storage full — try without raw data for policies
-    try { sessionStorage.removeItem(key) } catch { /* ignore */ }
+  const cache: DataCache<T> = {
+    version: CACHE_VERSION,
+    tenantId,
+    userName,
+    data,
+    timestamp: Date.now(),
+  }
+  const serialized = JSON.stringify(cache)
+
+  for (const storage of getStorageCandidates()) {
+    try {
+      storage.setItem(key, serialized)
+      return
+    } catch {
+      try { storage.removeItem(key) } catch { /* ignore */ }
+    }
   }
 }
 
 function clearAllCaches() {
-  try {
-    sessionStorage.removeItem(POLICY_CACHE_KEY)
-    sessionStorage.removeItem(GROUP_CACHE_KEY)
-  } catch { /* ignore */ }
+  for (const storage of getStorageCandidates()) {
+    try {
+      storage.removeItem(POLICY_CACHE_KEY)
+      storage.removeItem(GROUP_CACHE_KEY)
+    } catch { /* ignore */ }
+  }
 }
 
 function timeAgo(timestamp: number): string {
@@ -87,6 +121,12 @@ export default function App() {
   const [dataLoadedAt, setDataLoadedAt] = useState<number | null>(null)
   const [fromCache, setFromCache] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [loadedForKey, setLoadedForKey] = useState<string | null>(null)
+  const backgroundRefreshRef = useRef<Promise<void> | null>(null)
+
+  const authCacheKey = auth?.tenantId && auth?.userName
+    ? `${auth.tenantId}:${auth.userName}`
+    : null
 
   useEffect(() => {
     if (darkMode) {
@@ -109,51 +149,86 @@ export default function App() {
       .finally(() => setAuthLoading(false))
   }, [])
 
+  const commitLoadedData = useCallback((policiesData: Policy[], groupsData: Group[], loadedAt: number, cached: boolean) => {
+    setPolicies(policiesData)
+    setGroups(groupsData)
+    setDataLoadedAt(loadedAt)
+    setFromCache(cached)
+    setLoadedForKey(authCacheKey)
+  }, [authCacheKey])
+
+  const refreshAllData = useCallback(async (options?: { forceRefresh?: boolean; silent?: boolean }) => {
+    if (!auth?.tenantId || !auth?.userName) return
+
+    const forceRefresh = options?.forceRefresh ?? false
+    const silent = options?.silent ?? false
+
+    if (!silent) {
+      setDataLoading(true)
+      setError(null)
+    }
+
+    try {
+      const [policiesData, groupsData] = await Promise.all([
+        fetchPolicies({ refresh: forceRefresh }),
+        fetchAllGroups(),
+      ])
+      const now = Date.now()
+      commitLoadedData(policiesData, groupsData, now, false)
+      saveCache(POLICY_CACHE_KEY, auth.tenantId, auth.userName, stripRawForCache(policiesData))
+      saveCache(GROUP_CACHE_KEY, auth.tenantId, auth.userName, groupsData)
+    } catch (e) {
+      if (!silent) {
+        setError(e instanceof Error ? e.message : 'Failed to load data')
+      }
+    } finally {
+      if (!silent) {
+        setDataLoading(false)
+      }
+    }
+  }, [auth?.tenantId, auth?.userName, commitLoadedData])
+
+  const queueBackgroundRefresh = useCallback(() => {
+    if (backgroundRefreshRef.current) return backgroundRefreshRef.current
+
+    const refreshPromise = refreshAllData({ silent: true })
+      .catch(() => undefined)
+      .finally(() => {
+        backgroundRefreshRef.current = null
+      })
+
+    backgroundRefreshRef.current = refreshPromise
+    return refreshPromise
+  }, [refreshAllData])
+
   // Load all data (policies + groups) — from cache or fresh
   const loadAllData = useCallback(async (forceRefresh = false) => {
     if (!auth?.tenantId || !auth?.userName) return
 
-    // Try cache first (unless forcing refresh)
     if (!forceRefresh) {
       const cachedPolicies = loadCache<Policy[]>(POLICY_CACHE_KEY, auth.tenantId, auth.userName)
       const cachedGroups = loadCache<Group[]>(GROUP_CACHE_KEY, auth.tenantId, auth.userName)
       if (cachedPolicies && cachedPolicies.data.length > 0 && cachedGroups && cachedGroups.data.length > 0) {
-        setPolicies(cachedPolicies.data)
-        setGroups(cachedGroups.data)
-        setDataLoadedAt(Math.min(cachedPolicies.timestamp, cachedGroups.timestamp))
-        setFromCache(true)
+        commitLoadedData(
+          cachedPolicies.data,
+          cachedGroups.data,
+          Math.min(cachedPolicies.timestamp, cachedGroups.timestamp),
+          true,
+        )
+        void queueBackgroundRefresh()
         return
       }
     }
 
-    // Fetch fresh
-    setDataLoading(true)
-    setFromCache(false)
-    setError(null)
-    try {
-      const [policiesData, groupsData] = await Promise.all([
-        fetchPolicies(),
-        fetchAllGroups(),
-      ])
-      setPolicies(policiesData)
-      setGroups(groupsData)
-      const now = Date.now()
-      setDataLoadedAt(now)
-      saveCache(POLICY_CACHE_KEY, auth.tenantId, auth.userName, stripRawForCache(policiesData))
-      saveCache(GROUP_CACHE_KEY, auth.tenantId, auth.userName, groupsData)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load data')
-    } finally {
-      setDataLoading(false)
-    }
-  }, [auth?.tenantId, auth?.userName])
+    await refreshAllData({ forceRefresh })
+  }, [auth?.tenantId, auth?.userName, commitLoadedData, queueBackgroundRefresh, refreshAllData])
 
   // Auto-load when authenticated
   useEffect(() => {
-    if (auth?.isAuthenticated && policies.length === 0 && !dataLoading) {
+    if (auth?.isAuthenticated && !dataLoading && (policies.length === 0 || loadedForKey !== authCacheKey)) {
       loadAllData(false)
     }
-  }, [auth?.isAuthenticated]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [auth?.isAuthenticated, authCacheKey, loadedForKey, policies.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRefresh = useCallback(() => {
     loadAllData(true)
@@ -176,6 +251,8 @@ export default function App() {
       setPolicies([])
       setGroups([])
       setDataLoadedAt(null)
+      setLoadedForKey(null)
+      setFromCache(false)
       clearAllCaches()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Logout failed')
@@ -185,8 +262,8 @@ export default function App() {
   const tabs: { key: Tab; label: string; disabled: boolean }[] = [
     { key: 'dashboard', label: 'Dashboard', disabled: false },
     { key: 'groupExplorer', label: 'Group Explorer', disabled: false },
-    { key: 'conflicts', label: 'Conflict Analyzer', disabled: false },
-    { key: 'optimization', label: 'Optimization', disabled: true },
+    { key: 'conflicts', label: 'Conflict Analyser', disabled: false },
+    { key: 'optimization', label: 'Optimisation', disabled: true },
   ]
 
   const dataLoaded = policies.length > 0
@@ -199,7 +276,7 @@ export default function App() {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
               <span className="text-xl font-bold tracking-tight">
-                📊 Intune Policy Analyzer
+                📊 Intune Policy Analyser
               </span>
               {/* Cache/refresh indicator in header */}
               {auth?.isAuthenticated && dataLoaded && (
@@ -288,9 +365,9 @@ export default function App() {
       {/* Not authenticated — landing page */}
       {!authLoading && !auth?.isAuthenticated && (
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 text-center">
-          <h2 className="text-3xl font-bold mb-4">Welcome to Intune Policy Analyzer</h2>
+          <h2 className="text-3xl font-bold mb-4">Welcome to Intune Policy Analyser</h2>
           <p className="text-gray-500 dark:text-gray-400 mb-8 max-w-lg mx-auto">
-            Analyze your Intune policies, explore group assignments, detect conflicts, and optimize your configuration — all read-only, no app registration required.
+            Analyse your Intune policies, explore group assignments, detect conflicts, and optimise your configuration — all read-only, no app registration required.
           </p>
           <button
             onClick={handleLogin}

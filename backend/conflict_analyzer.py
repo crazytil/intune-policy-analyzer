@@ -127,6 +127,28 @@ _CA_CONDITION_NAMES: Dict[str, str] = {
     "servicePrincipalRiskLevels": "Service Principal Risk Levels",
 }
 
+_SETTINGS_CATALOG_PREFIX_MAP: Dict[str, str] = {
+    "device_vendor_msft_policy_config": "Settings Catalog",
+    "device_vendor_msft_defender": "Settings Catalog",
+}
+
+_SETTINGS_SEGMENT_LABELS: Dict[str, str] = {
+    "msft": "Microsoft",
+    "config": "Configuration",
+    "defender": "Defender",
+    "bitlocker": "BitLocker",
+    "firewall": "Firewall",
+    "browser": "Browser",
+}
+
+_SETTINGS_LEAF_LABELS: Dict[str, str] = {
+    "allowarchivescanning": "Allow Archive Scanning",
+    "allowfullscanremovabledrivescanning": "Allow Full Scan Removable Drives Scanning",
+    "submitsamplesconsent": "Submit Samples Consent",
+}
+
+_SETTINGS_ENUM_VALUE_MAP: Dict[str, Dict[str, str]] = {}
+
 # Metadata fields to skip when extracting settings from raw policy dicts
 _RAW_SKIP_FIELDS: Set[str] = {
     "id",
@@ -153,6 +175,44 @@ _RAW_SKIP_FIELDS: Set[str] = {
     "templateReference",
 }
 
+_SCRIPT_POLICY_TYPES: Set[PolicyType] = {
+    PolicyType.POWERSHELL_SCRIPTS,
+    PolicyType.REMEDIATION_SCRIPTS,
+}
+
+_DEVICE_CONFIGURATION_METADATA_FIELDS: Set[str] = {
+    "certFileName",
+    "destinationStore",
+    "trustedRootCertificate",
+    "renewalThresholdPercentage",
+    "subjectNameFormatString",
+    "subjectAlternativeNameType",
+    "certificateAccessType",
+    "certificateStore",
+    "certificateValidityPeriodScale",
+    "certificateValidityPeriodValue",
+    "customSubjectAlternativeNames",
+    "intendedPurpose",
+    "keySize",
+    "keyStorageProvider",
+    "rootCertificateName",
+}
+
+_CERTIFICATE_ODATA_MARKERS = (
+    "certificate",
+    "pkcs",
+    "scep",
+    "derivedcredential",
+)
+
+_RAW_PROFILE_SKIP_MARKERS = (
+    "wifi",
+    "wi-fi",
+    "wireless",
+    "customconfiguration",
+    "omaconfiguration",
+)
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -170,6 +230,59 @@ def _friendly_name_for_property(key: str) -> str:
     return _camel_to_title(key)
 
 
+def _snake_to_title(name: str) -> str:
+    compact = name.replace("_", "").lower()
+    if compact in _SETTINGS_LEAF_LABELS:
+        return _SETTINGS_LEAF_LABELS[compact]
+
+    normalized = _camel_to_title(name.replace("_", " "))
+    parts = normalized.split()
+    return " ".join(
+        _SETTINGS_SEGMENT_LABELS.get(part.lower(), part.upper() if len(part) <= 3 else part)
+        for part in parts
+        if part
+    )
+
+
+def _format_value_path(setting_key: str) -> str:
+    if ":" not in setting_key:
+        return setting_key
+
+    prefix, raw_path = setting_key.split(":", 1)
+    if prefix != PolicyType.SETTINGS_CATALOG.value:
+        return setting_key.replace(":", " > ")
+
+    for known_prefix, display_prefix in _SETTINGS_CATALOG_PREFIX_MAP.items():
+        if raw_path.startswith(known_prefix + "_"):
+            remainder = raw_path[len(known_prefix) + 1:]
+            category, _, leaf_raw = remainder.partition("_")
+            leaf = _snake_to_title(leaf_raw or category)
+            return f"{display_prefix} > {_snake_to_title(category)} > {leaf}"
+
+    return f"Settings Catalog > {_snake_to_title(raw_path)}"
+
+
+def _decode_settings_catalog_value(value: str) -> Optional[str]:
+    for definition_id, value_map in _SETTINGS_ENUM_VALUE_MAP.items():
+        marker = f"{definition_id}_"
+        if value.startswith(marker):
+            code = value[len(marker):]
+            if code in value_map:
+                return value_map[code]
+
+    match = re.match(r"(.+)_([0-9]+)$", value)
+    if not match:
+        return None
+
+    definition_id, code = match.groups()
+    leaf_name = definition_id.rsplit("_", 1)[-1]
+    if code == "1" and leaf_name.startswith(("allow", "enable", "require")):
+        return "Enabled"
+    if code == "0" and leaf_name.startswith(("allow", "enable", "require")):
+        return "Disabled"
+    return f"{_snake_to_title(leaf_name)}: Option {code}"
+
+
 def _format_value_display(value: Any) -> str:
     """Return a human-readable display string for a setting value."""
     if value is None:
@@ -184,6 +297,9 @@ def _format_value_display(value: Any) -> str:
             return "Disabled"
         if low == "notconfigured":
             return "Not Configured"
+        decoded = _decode_settings_catalog_value(value)
+        if decoded:
+            return decoded
         # For enum-like values ending in _enabled/_disabled/_required etc.
         if "_" in value:
             return value.replace("_", " ").title()
@@ -243,6 +359,7 @@ def _make_entry(
         "policy_id": policy.id,
         "policy_name": policy.display_name,
         "policy_type": policy_type_str,
+        "platform_key": _platform_bucket_key(policy),
     }
 
 
@@ -250,13 +367,20 @@ def _extract_raw_settings(policy: Policy, prefix: str) -> List[Dict[str, Any]]:
     """Extract settings from the raw dict (Device Config, Compliance, etc.)."""
     results: List[Dict[str, Any]] = []
     raw = policy.raw
+    if _should_skip_raw_policy(policy):
+        return results
+    raw_schema = _raw_policy_schema_key(policy)
     for key, value in raw.items():
-        if key.startswith("@") or key in _RAW_SKIP_FIELDS:
+        if key.startswith("@") or key in _RAW_SKIP_FIELDS or _should_skip_raw_setting(policy, key):
             continue
         norm = _normalize_value(value)
         if norm is None:
             continue
-        setting_key = f"{prefix}:{key}"
+        setting_key = (
+            f"{prefix}:{raw_schema}|{key}"
+            if raw_schema
+            else f"{prefix}:{key}"
+        )
         display_name = _friendly_name_for_property(key)
         results.append(
             _make_entry(setting_key, display_name, value, policy, prefix)
@@ -275,16 +399,25 @@ def _extract_settings_catalog(policy: Policy) -> List[Dict[str, Any]]:
         if not definition_id:
             continue
 
+        definition = _get_matching_definition(setting, definition_id)
+
         # Try to get friendly name from embedded settingDefinitions
         display_name = _resolve_catalog_display_name(setting, definition_id)
 
         # Extract value based on setting instance type
         value = _extract_setting_instance_value(instance, odata_type)
 
-        setting_key = f"{prefix}:{definition_id}"
-        results.append(
-            _make_entry(setting_key, display_name, value, policy, prefix)
+        setting_key = _resolve_catalog_setting_key(setting, definition_id, prefix)
+        entry = _make_entry(setting_key, display_name, value, policy, prefix)
+        resolved_value_display = _resolve_catalog_value_display(
+            setting,
+            definition,
+            instance,
+            value,
         )
+        if resolved_value_display:
+            entry["value_display"] = resolved_value_display
+        results.append(entry)
     return results
 
 
@@ -292,18 +425,11 @@ def _resolve_catalog_display_name(
     setting: Dict[str, Any], definition_id: str
 ) -> str:
     """Get the display name from settingDefinitions if available."""
-    definitions = setting.get("settingDefinitions", [])
-    if definitions:
-        # Match by definitionId or just take the first that looks right
-        for defn in definitions:
-            if defn.get("id", "") == definition_id:
-                name = defn.get("displayName", "")
-                if name:
-                    return name
-        # Fallback: use the first definition's displayName
-        first_name = definitions[0].get("displayName", "")
-        if first_name:
-            return first_name
+    definition = _get_matching_definition(setting, definition_id)
+    if definition:
+        name = definition.get("displayName", "")
+        if name:
+            return name
 
     # Fallback: extract a readable name from the definition ID
     # Format: device_vendor_msft_policy_config_<category>_<setting>
@@ -311,6 +437,121 @@ def _resolve_catalog_display_name(
     if len(parts) > 1:
         return _camel_to_title(parts[-1])
     return definition_id
+
+
+def _get_matching_definition(
+    setting: Dict[str, Any], definition_id: str
+) -> Optional[Dict[str, Any]]:
+    definitions = setting.get("settingDefinitions", [])
+    for definition in definitions:
+        if definition.get("id", "") == definition_id:
+            return definition
+    if definitions:
+        return definitions[0]
+    return None
+
+
+def _resolve_catalog_setting_key(
+    setting: Dict[str, Any], definition_id: str, prefix: str
+) -> str:
+    definition = _get_matching_definition(setting, definition_id)
+    if definition:
+        base_uri = str(definition.get("baseUri") or "").strip()
+        offset_uri = str(definition.get("offsetUri") or "").strip()
+        if base_uri or offset_uri:
+            path_parts = [part.strip("/") for part in (base_uri, offset_uri) if part]
+            if path_parts:
+                return f"{prefix}:{'/'.join(path_parts)}"
+    return f"{prefix}:{definition_id}"
+
+
+def _resolve_catalog_value_display(
+    setting: Dict[str, Any],
+    definition: Optional[Dict[str, Any]],
+    instance: Dict[str, Any],
+    value: Any,
+) -> Optional[str]:
+    type_lower = str(instance.get("@odata.type", "")).lower()
+    if "choicesettinginstance" in type_lower and isinstance(value, str):
+        if definition:
+            choice_display = _resolve_choice_value_display(definition, value)
+            if choice_display:
+                return choice_display
+        return _decode_settings_catalog_value(value)
+
+    if "groupsettinginstance" in type_lower or "groupsettingcollectioninstance" in type_lower:
+        if "groupsettingcollectioninstance" in type_lower:
+            collections = instance.get("groupSettingCollectionValue", [])
+            children = [
+                child
+                for collection in collections
+                for child in collection.get("children", [])
+            ]
+        else:
+            children = instance.get("groupSettingValue", {}).get("children", [])
+        rendered_children: List[str] = []
+        for child in children:
+            child_definition_id = child.get("settingDefinitionId", "")
+            child_definition = _get_matching_definition(setting, child_definition_id)
+            child_label = (
+                child_definition.get("displayName")
+                if child_definition
+                else _friendly_name_for_catalog_id(child_definition_id)
+            )
+            child_value = _extract_setting_instance_value(
+                child, child.get("@odata.type", "")
+            )
+            child_display = _resolve_catalog_value_display(
+                setting,
+                child_definition,
+                child,
+                child_value,
+            ) or _format_value_display(child_value)
+            rendered_children.append(f"{child_label}: {child_display}")
+        if rendered_children:
+            return "\n".join(rendered_children)
+
+    return None
+
+
+def _resolve_choice_value_display(
+    definition: Dict[str, Any], selected_value: str
+) -> Optional[str]:
+    options = definition.get("options", [])
+    for option in options:
+        display_name = option.get("displayName") or option.get("name")
+        if not display_name:
+            continue
+
+        if option.get("itemId") == selected_value:
+            return display_name
+
+        option_value = option.get("optionValue", {})
+        if _option_value_matches(option_value, selected_value):
+            return display_name
+
+    return None
+
+
+def _option_value_matches(option_value: Dict[str, Any], selected_value: str) -> bool:
+    if option_value.get("value") == selected_value:
+        return True
+
+    choice_value = option_value.get("choiceSettingValue", {})
+    if isinstance(choice_value, dict) and choice_value.get("value") == selected_value:
+        return True
+
+    for child in option_value.get("children", []):
+        child_choice = child.get("choiceSettingValue", {})
+        if isinstance(child_choice, dict) and child_choice.get("value") == selected_value:
+            return True
+
+    return False
+
+
+def _friendly_name_for_catalog_id(definition_id: str) -> str:
+    leaf = definition_id.rsplit("_", 1)[-1]
+    return _snake_to_title(leaf)
 
 
 def _extract_setting_instance_value(
@@ -336,6 +577,8 @@ def _extract_setting_instance_value(
             )
             for c in children
         }
+    if "groupsettingcollectioninstance" in type_lower:
+        return instance.get("groupSettingCollectionValue", [])
     # Fallback: return what we can find
     for k, v in instance.items():
         if k.endswith("Value") and k != "@odata.type":
@@ -463,12 +706,13 @@ def _extract_settings(policy: Policy) -> List[Dict[str, Any]]:
         if ptype == PolicyType.CONDITIONAL_ACCESS:
             return _extract_conditional_access(policy)
 
+        if ptype in _SCRIPT_POLICY_TYPES:
+            return []
+
         if ptype in (
             PolicyType.APP_PROTECTION,
             PolicyType.APP_CONFIGURATION,
             PolicyType.AUTOPILOT,
-            PolicyType.POWERSHELL_SCRIPTS,
-            PolicyType.REMEDIATION_SCRIPTS,
         ):
             return _extract_raw_settings(policy, ptype.value)
 
@@ -515,6 +759,98 @@ def _policies_have_overlapping_assignments(
     return bool(groups_a & groups_b)
 
 
+def _normalize_platform_token(token: str) -> Optional[str]:
+    low = token.strip().lower()
+    if not low:
+        return None
+    if "windows" in low:
+        return "windows"
+    if "ios" in low or "iphone" in low or "ipad" in low:
+        return "ios"
+    if "macos" in low or low == "mac" or "mac " in low:
+        return "macos"
+    if "android" in low:
+        return "android"
+    if "linux" in low:
+        return "linux"
+    if "all" in low or "any" in low:
+        return "all"
+    if "unknown" in low:
+        return "unknown"
+    return low
+
+
+def _platform_tokens(policy: Policy) -> Set[str]:
+    raw_platform = (policy.platform or "").strip()
+    if not raw_platform:
+        return {"unknown"}
+
+    tokens = {
+        normalized
+        for part in re.split(r"[,/|]+", raw_platform)
+        for normalized in [_normalize_platform_token(part)]
+        if normalized
+    }
+    return tokens or {"unknown"}
+
+
+def _platform_bucket_key(policy: Policy) -> str:
+    return "|".join(sorted(_platform_tokens(policy)))
+
+
+def _policy_matches_platform_filter(policy: Policy, selected_platforms: Optional[Set[str]]) -> bool:
+    if not selected_platforms:
+        return True
+    policy_platforms = _platform_tokens(policy)
+    if "all" in policy_platforms:
+        return True
+    return bool(policy_platforms & selected_platforms)
+
+
+def _filter_policies_by_platforms(
+    policies: List[Policy], selected_platforms: Optional[Set[str]]
+) -> List[Policy]:
+    if not selected_platforms:
+        return policies
+    return [policy for policy in policies if _policy_matches_platform_filter(policy, selected_platforms)]
+
+
+def _should_skip_raw_policy(policy: Policy) -> bool:
+    if policy.policy_type != PolicyType.DEVICE_CONFIGURATION:
+        return False
+    odata_type = str(policy.raw.get("@odata.type", "")).lower()
+    return any(marker in odata_type for marker in _CERTIFICATE_ODATA_MARKERS + _RAW_PROFILE_SKIP_MARKERS)
+
+
+def _should_skip_raw_setting(policy: Policy, key: str) -> bool:
+    if policy.policy_type == PolicyType.DEVICE_CONFIGURATION and key in _DEVICE_CONFIGURATION_METADATA_FIELDS:
+        return True
+    return False
+
+
+def _raw_policy_schema_key(policy: Policy) -> str:
+    odata_type = str(policy.raw.get("@odata.type", "")).strip()
+    if not odata_type:
+        return ""
+    return odata_type.removeprefix("#microsoft.graph.")
+
+
+def _is_default_like_value(value: Any) -> bool:
+    if value in (None, False, 0, ""):
+        return True
+    if isinstance(value, (list, dict)):
+        return len(value) == 0
+    return False
+
+
+def _should_skip_matching_entries(entries: List[Dict[str, Any]]) -> bool:
+    if not entries:
+        return False
+    if any(entry["policy_type"] != PolicyType.DEVICE_CONFIGURATION.value for entry in entries):
+        return False
+    return all(_is_default_like_value(entry["value"]) for entry in entries)
+
+
 # ── Conflict analysis ────────────────────────────────────────────────────────
 
 
@@ -533,43 +869,53 @@ def _build_conflicts(policies: List[Policy]) -> List[ConflictItem]:
         if len(entries) < 2:
             continue
 
-        # De-duplicate by policy_id
-        seen_policy_ids: Set[str] = set()
-        unique_entries: List[Dict[str, Any]] = []
+        platform_groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         for entry in entries:
-            if entry["policy_id"] not in seen_policy_ids:
-                seen_policy_ids.add(entry["policy_id"])
-                unique_entries.append(entry)
+            platform_groups[entry.get("platform_key", "unknown")].append(entry)
 
-        if len(unique_entries) < 2:
-            continue
+        for unique_entries in platform_groups.values():
+            if len(unique_entries) < 2:
+                continue
 
-        # Check if values differ
-        values = [entry["value"] for entry in unique_entries]
-        has_different = len(set(repr(v) for v in values)) > 1
+            # De-duplicate by policy_id
+            seen_policy_ids: Set[str] = set()
+            deduped_entries: List[Dict[str, Any]] = []
+            for entry in unique_entries:
+                if entry["policy_id"] not in seen_policy_ids:
+                    seen_policy_ids.add(entry["policy_id"])
+                    deduped_entries.append(entry)
 
-        conflict_policies = [
-            ConflictPolicy(
-                policy_id=entry["policy_id"],
-                policy_name=entry["policy_name"],
-                policy_type=entry["policy_type"],
-                value=entry["value"],
-                value_display=entry.get("value_display", ""),
+            if len(deduped_entries) < 2:
+                continue
+
+            # Check if values differ
+            values = [entry["value"] for entry in deduped_entries]
+            has_different = len(set(repr(v) for v in values)) > 1
+            if not has_different and _should_skip_matching_entries(deduped_entries):
+                continue
+
+            conflict_policies = [
+                ConflictPolicy(
+                    policy_id=entry["policy_id"],
+                    policy_name=entry["policy_name"],
+                    policy_type=entry["policy_type"],
+                    value=entry["value"],
+                    value_display=entry.get("value_display", ""),
+                )
+                for entry in deduped_entries
+            ]
+
+            # Use display_name from first entry
+            display_name = deduped_entries[0].get("display_name", "")
+
+            conflicts.append(
+                ConflictItem(
+                    setting_key=setting_key,
+                    setting_label=display_name,
+                    has_different_values=has_different,
+                    policies=conflict_policies,
+                )
             )
-            for entry in unique_entries
-        ]
-
-        # Use display_name from first entry
-        display_name = unique_entries[0].get("display_name", "")
-
-        conflicts.append(
-            ConflictItem(
-                setting_key=setting_key,
-                setting_label=display_name,
-                has_different_values=has_different,
-                policies=conflict_policies,
-            )
-        )
 
     # Sort: true conflicts first, then by number of affected policies descending
     conflicts.sort(
@@ -583,6 +929,7 @@ def analyze_conflicts_for_group(
     group_id: str,
     all_policies: List[Policy],
     group_policy_mappings: List[Dict[str, Any]],
+    selected_platforms: Optional[Set[str]] = None,
 ) -> List[ConflictItem]:
     """Find setting conflicts among policies targeting a specific group."""
     policy_ids: Set[str] = set()
@@ -594,6 +941,7 @@ def analyze_conflicts_for_group(
                 policy_ids.add(pid)
 
     targeted = [p for p in all_policies if p.id in policy_ids]
+    targeted = _filter_policies_by_platforms(targeted, selected_platforms)
 
     if len(targeted) < 2:
         return []
@@ -602,7 +950,7 @@ def analyze_conflicts_for_group(
 
 
 def analyze_conflicts_for_target(
-    target: str, all_policies: List[Policy]
+    target: str, all_policies: List[Policy], selected_platforms: Optional[Set[str]] = None
 ) -> List[ConflictItem]:
     """Find conflicts among policies assigned to a special target ('all_users' or 'all_devices')."""
     if target == "all_users":
@@ -620,6 +968,8 @@ def analyze_conflicts_for_target(
                 targeted.append(policy)
                 break
 
+    targeted = _filter_policies_by_platforms(targeted, selected_platforms)
+
     if len(targeted) < 2:
         return []
 
@@ -627,7 +977,7 @@ def analyze_conflicts_for_target(
 
 
 def analyze_conflicts_for_policy(
-    policy_id: str, all_policies: List[Policy]
+    policy_id: str, all_policies: List[Policy], selected_platforms: Optional[Set[str]] = None
 ) -> List[ConflictItem]:
     """Find setting conflicts for a specific policy against all others."""
     target_policy = None
@@ -636,6 +986,8 @@ def analyze_conflicts_for_policy(
             target_policy = p
             break
     if not target_policy:
+        return []
+    if not _policy_matches_platform_filter(target_policy, selected_platforms):
         return []
 
     target_groups = _get_assigned_group_ids(target_policy)
@@ -646,7 +998,7 @@ def analyze_conflicts_for_policy(
         if p.id == policy_id:
             continue
         p_groups = _get_assigned_group_ids(p)
-        if target_groups & p_groups:
+        if target_groups & p_groups and _policy_matches_platform_filter(p, selected_platforms):
             related_policies.append(p)
 
     if len(related_policies) < 2:
@@ -660,8 +1012,11 @@ def analyze_conflicts_for_policy(
     ]
 
 
-def analyze_all_conflicts(all_policies: List[Policy]) -> List[ConflictItem]:
+def analyze_all_conflicts(
+    all_policies: List[Policy], selected_platforms: Optional[Set[str]] = None
+) -> List[ConflictItem]:
     """Find setting conflicts tenant-wide among policies with overlapping assignments."""
+    all_policies = _filter_policies_by_platforms(all_policies, selected_platforms)
     if len(all_policies) < 2:
         return []
 

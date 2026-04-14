@@ -1,14 +1,40 @@
 import type { AuthStatus, Policy, Group, GroupPolicyMapping } from '../types'
 
 const BASE = '/api'
+const inflightRequests = new Map<string, Promise<unknown>>()
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(url, options)
-  if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText)
-    throw new Error(`API error ${res.status}: ${text}`)
+  const method = options?.method ?? 'GET'
+  const dedupeKey = method === 'GET' ? `${method}:${url}` : null
+
+  if (dedupeKey) {
+    const existing = inflightRequests.get(dedupeKey)
+    if (existing) {
+      return existing as Promise<T>
+    }
   }
-  return res.json() as Promise<T>
+
+  const execute = async () => {
+    const res = await fetch(url, options)
+    if (!res.ok) {
+      const text = await res.text().catch(() => res.statusText)
+      throw new Error(`API error ${res.status}: ${text}`)
+    }
+    return res.json() as Promise<T>
+  }
+
+  const promise = execute()
+  if (dedupeKey) {
+    inflightRequests.set(dedupeKey, promise)
+  }
+
+  try {
+    return await promise
+  } finally {
+    if (dedupeKey) {
+      inflightRequests.delete(dedupeKey)
+    }
+  }
 }
 
 export async function getAuthStatus(): Promise<AuthStatus> {
@@ -23,8 +49,9 @@ export async function logout(): Promise<void> {
   await request<unknown>(`${BASE}/auth/logout`, { method: 'POST' })
 }
 
-export async function fetchPolicies(): Promise<Policy[]> {
-  return request<Policy[]>(`${BASE}/policies`)
+export async function fetchPolicies(options?: { refresh?: boolean }): Promise<Policy[]> {
+  const qs = options?.refresh ? '?refresh=true' : ''
+  return request<Policy[]>(`${BASE}/policies${qs}`)
 }
 
 export async function fetchAllGroups(): Promise<Group[]> {
@@ -35,8 +62,17 @@ export async function searchGroups(query: string): Promise<Group[]> {
   return request<Group[]>(`${BASE}/groups/search?q=${encodeURIComponent(query)}`)
 }
 
-export async function getGroupPolicies(groupId: string): Promise<GroupPolicyMapping[]> {
-  return request<GroupPolicyMapping[]>(`${BASE}/groups/${encodeURIComponent(groupId)}/policies`)
+export async function getGroupPolicies(
+  groupId: string,
+  options?: { includeAllUsers?: boolean; includeAllDevices?: boolean },
+): Promise<GroupPolicyMapping[]> {
+  const params = new URLSearchParams()
+  if (options?.includeAllUsers === false) params.set('includeAllUsers', 'false')
+  if (options?.includeAllDevices === false) params.set('includeAllDevices', 'false')
+  const qs = params.toString()
+  return request<GroupPolicyMapping[]>(
+    `${BASE}/groups/${encodeURIComponent(groupId)}/policies${qs ? `?${qs}` : ''}`,
+  )
 }
 
 export interface PolicyGroupTarget {
@@ -78,18 +114,51 @@ export interface ConflictAnalysisResult {
   stats: ConflictStats
 }
 
-export async function analyzeConflicts(): Promise<ConflictAnalysisResult> {
-  return request<ConflictAnalysisResult>(`${BASE}/analyze-conflicts`)
+function appendPlatformFilters(params: URLSearchParams, platforms?: string[]): void {
+  for (const platform of platforms ?? []) {
+    if (platform.trim()) params.append('platform', platform)
+  }
 }
 
-export async function analyzeConflictsForGroup(groupId: string): Promise<ConflictAnalysisResult> {
-  return request<ConflictAnalysisResult>(`${BASE}/analyze-conflicts/group/${encodeURIComponent(groupId)}`)
+export async function analyzeConflictsForGroup(
+  groupId: string,
+  options?: { includeAllUsers?: boolean; includeAllDevices?: boolean; platforms?: string[] },
+): Promise<ConflictAnalysisResult> {
+  const params = new URLSearchParams()
+  if (options?.includeAllUsers === false) params.set('includeAllUsers', 'false')
+  if (options?.includeAllDevices === false) params.set('includeAllDevices', 'false')
+  appendPlatformFilters(params, options?.platforms)
+  const qs = params.toString()
+  return request<ConflictAnalysisResult>(
+    `${BASE}/analyze-conflicts/group/${encodeURIComponent(groupId)}${qs ? `?${qs}` : ''}`,
+  )
 }
 
-export async function analyzeConflictsForPolicy(policyId: string): Promise<ConflictAnalysisResult> {
-  return request<ConflictAnalysisResult>(`${BASE}/analyze-conflicts/policy/${encodeURIComponent(policyId)}`)
+export async function analyzeConflicts(options?: { platforms?: string[] }): Promise<ConflictAnalysisResult> {
+  const params = new URLSearchParams()
+  appendPlatformFilters(params, options?.platforms)
+  const qs = params.toString()
+  return request<ConflictAnalysisResult>(`${BASE}/analyze-conflicts${qs ? `?${qs}` : ''}`)
 }
 
-export async function analyzeConflictsForTarget(target: 'all_users' | 'all_devices'): Promise<ConflictAnalysisResult> {
-  return request<ConflictAnalysisResult>(`${BASE}/analyze-conflicts/target/${target}`)
+export async function analyzeConflictsForPolicy(
+  policyId: string,
+  options?: { platforms?: string[] },
+): Promise<ConflictAnalysisResult> {
+  const params = new URLSearchParams()
+  appendPlatformFilters(params, options?.platforms)
+  const qs = params.toString()
+  return request<ConflictAnalysisResult>(
+    `${BASE}/analyze-conflicts/policy/${encodeURIComponent(policyId)}${qs ? `?${qs}` : ''}`,
+  )
+}
+
+export async function analyzeConflictsForTarget(
+  target: 'all_users' | 'all_devices',
+  options?: { platforms?: string[] },
+): Promise<ConflictAnalysisResult> {
+  const params = new URLSearchParams()
+  appendPlatformFilters(params, options?.platforms)
+  const qs = params.toString()
+  return request<ConflictAnalysisResult>(`${BASE}/analyze-conflicts/target/${target}${qs ? `?${qs}` : ''}`)
 }

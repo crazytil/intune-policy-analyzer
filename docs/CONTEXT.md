@@ -10,7 +10,6 @@
 - **Phase 3** 🔲 Optimization engine + export (CSV/HTML/PDF)
 
 **GitHub:** https://github.com/crazytil/intune-policy-analyzer
-**Tenant:** tburg.onmicrosoft.com | User: ga2@tburg.onmicrosoft.com
 
 ## Critical Implementation Details
 

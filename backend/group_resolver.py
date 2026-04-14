@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+from cache_utils import TTLCache
+from config import settings
 from graph_client import GraphClient
 from models import (
     AssignmentSource,
@@ -12,6 +14,23 @@ from models import (
 )
 
 logger = logging.getLogger(__name__)
+
+_group_cache: TTLCache[str, Group] = TTLCache(
+    ttl_seconds=settings.groups_cache_ttl_seconds,
+    max_entries=512,
+)
+_group_search_cache: TTLCache[str, list[Group]] = TTLCache(
+    ttl_seconds=settings.groups_cache_ttl_seconds,
+    max_entries=128,
+)
+_group_members_cache: TTLCache[str, list[dict[str, Any]]] = TTLCache(
+    ttl_seconds=settings.group_membership_cache_ttl_seconds,
+    max_entries=256,
+)
+_group_member_of_cache: TTLCache[str, list[dict[str, Any]]] = TTLCache(
+    ttl_seconds=settings.group_membership_cache_ttl_seconds,
+    max_entries=256,
+)
 
 # Well-known Graph assignment target types
 _ALL_USERS_TYPE = "#microsoft.graph.allLicensedUsersAssignmentTarget"
@@ -33,6 +52,11 @@ def _build_group(raw: dict[str, Any]) -> Group:
 
 async def search_groups(client: GraphClient, query: str) -> list[Group]:
     """Search groups by display name using $filter startsWith."""
+    normalized_query = query.strip().lower()
+    cached = _group_search_cache.get(normalized_query)
+    if cached is not None:
+        return cached
+
     try:
         params = {
             "$filter": f"startsWith(displayName, '{query}')",
@@ -42,7 +66,11 @@ async def search_groups(client: GraphClient, query: str) -> list[Group]:
         }
         # ConsistencyLevel header is needed for $count and advanced filters
         raw_groups = await client.get("groups", params=params)
-        return [_build_group(g) for g in raw_groups]
+        groups = [_build_group(g) for g in raw_groups]
+        _group_search_cache.set(normalized_query, groups)
+        for group in groups:
+            _group_cache.set(group.id, group)
+        return groups
     except Exception:
         # Fallback: try $search if $filter fails (some tenants require it)
         try:
@@ -52,7 +80,11 @@ async def search_groups(client: GraphClient, query: str) -> list[Group]:
                 "$count": "true",
             }
             raw_groups = await client.get("groups", params=params)
-            return [_build_group(g) for g in raw_groups]
+            groups = [_build_group(g) for g in raw_groups]
+            _group_search_cache.set(normalized_query, groups)
+            for group in groups:
+                _group_cache.set(group.id, group)
+            return groups
         except Exception as e:
             logger.error("Failed to search groups: %s", e)
             return []
@@ -60,9 +92,15 @@ async def search_groups(client: GraphClient, query: str) -> list[Group]:
 
 async def get_group(client: GraphClient, group_id: str) -> Optional[Group]:
     """Get a single group by ID."""
+    cached = _group_cache.get(group_id)
+    if cached is not None:
+        return cached
+
     try:
         raw = await client.get_single(f"groups/{group_id}")
-        return _build_group(raw)
+        group = _build_group(raw)
+        _group_cache.set(group_id, group)
+        return group
     except Exception as e:
         logger.error("Failed to get group %s: %s", group_id, e)
         return None
@@ -72,11 +110,17 @@ async def get_group_transitive_members(
     client: GraphClient, group_id: str
 ) -> list[dict[str, Any]]:
     """Get all transitive members of a group (for member count)."""
+    cached = _group_members_cache.get(group_id)
+    if cached is not None:
+        return cached
+
     try:
-        return await client.get(
+        results = await client.get(
             f"groups/{group_id}/transitiveMembers",
             params={"$select": "id,displayName,userPrincipalName", "$top": "999"},
         )
+        _group_members_cache.set(group_id, results)
+        return results
     except Exception as e:
         logger.error("Failed to get transitive members for %s: %s", group_id, e)
         return []
@@ -86,19 +130,32 @@ async def get_group_transitive_member_of(
     client: GraphClient, group_id: str
 ) -> list[dict[str, Any]]:
     """Get all groups this group is a transitive member of (parent groups)."""
+    cached = _group_member_of_cache.get(group_id)
+    if cached is not None:
+        return cached
+
     try:
         results = await client.get(
             f"groups/{group_id}/transitiveMemberOf",
             params={"$select": "id,displayName,groupTypes,membershipRule"},
         )
         # Filter to only groups (not roles, etc.)
-        return [
+        groups = [
             r for r in results
             if r.get("@odata.type", "") == "#microsoft.graph.group"
         ]
+        _group_member_of_cache.set(group_id, groups)
+        return groups
     except Exception as e:
         logger.error("Failed to get transitive memberOf for %s: %s", group_id, e)
         return []
+
+
+def clear_group_caches() -> None:
+    _group_cache.clear()
+    _group_search_cache.clear()
+    _group_members_cache.clear()
+    _group_member_of_cache.clear()
 
 
 def _get_target_group_ids(policy: Policy) -> dict[str, str]:

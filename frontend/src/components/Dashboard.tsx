@@ -74,10 +74,10 @@ export default function Dashboard({ policies, groups, loading, onRefresh, loaded
         <StatCard
           label="Conflicts Found"
           value="—"
-          sub="Run Conflict Analyzer"
+          sub="Run Conflict Analyser"
         />
         <StatCard
-          label="Optimization Score"
+          label="Optimisation Score"
           value="—"
           sub="Coming soon"
         />
