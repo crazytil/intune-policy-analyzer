@@ -46,13 +46,17 @@ class OptimizationEngineTests(unittest.TestCase):
             ),
         ]
 
-        result = analyze_optimization_opportunities(policies)
+        result = analyze_optimization_opportunities(
+            policies,
+            group_name_by_id={"group-1": "Windows Pilot Devices"},
+        )
 
         self.assertEqual(result.summary.total_findings, 1)
         self.assertEqual(result.summary.consolidation_candidates, 1)
         finding = result.findings[0]
         self.assertEqual(finding.recommendation_type.value, "consolidationCandidate")
         self.assertEqual(finding.domain, "Edge")
+        self.assertEqual(finding.audience, "Windows Pilot Devices")
         self.assertEqual(finding.platforms, ["Windows"])
         self.assertEqual(finding.policy_count, 2)
         self.assertEqual(finding.shared_setting_count, 1)
@@ -220,6 +224,31 @@ class OptimizationEngineTests(unittest.TestCase):
         result = analyze_optimization_opportunities(policies)
 
         self.assertEqual(result.summary.total_findings, 0)
+
+    def test_falls_back_to_group_id_when_name_is_unavailable(self) -> None:
+        policies = [
+            Policy(
+                id="edge-1",
+                display_name="Edge One",
+                policy_type=PolicyType.DEVICE_CONFIGURATION,
+                platform="windows",
+                assignments=[_assignment("group-99")],
+                raw={"edgeBlocked": False, "edgeBlockPopups": True},
+            ),
+            Policy(
+                id="edge-2",
+                display_name="Edge Two",
+                policy_type=PolicyType.DEVICE_CONFIGURATION,
+                platform="windows",
+                assignments=[_assignment("group-99")],
+                raw={"edgeBlocked": False, "edgeCookiePolicy": "block_third_party"},
+            ),
+        ]
+
+        result = analyze_optimization_opportunities(policies, group_name_by_id={})
+
+        self.assertEqual(result.summary.total_findings, 1)
+        self.assertEqual(result.findings[0].audience, "group-99")
 
 
 if __name__ == "__main__":

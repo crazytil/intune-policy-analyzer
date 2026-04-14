@@ -417,9 +417,15 @@ async def analyze_optimization_route(
     try:
         await _ensure_policies_loaded()
         all_policies = list(_policies_cache.values())
+        group_name_by_id = {
+            str(group.get("id")): str(group.get("displayName"))
+            for group in (_groups_cache.get("all") or [])
+            if group.get("id") and group.get("displayName")
+        }
         return analyze_optimization_opportunities(
             all_policies,
             selected_platforms=_normalize_platform_filters(platform),
+            group_name_by_id=group_name_by_id,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=401, detail=str(e))

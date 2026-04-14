@@ -62,14 +62,17 @@ def _platform_labels(platform_key: str) -> list[str]:
     return labels or ["Unknown"]
 
 
-def _audience_targets(policy: Policy) -> list[tuple[str, str]]:
+def _audience_targets(
+    policy: Policy,
+    group_name_by_id: Optional[dict[str, str]] = None,
+) -> list[tuple[str, str]]:
     targets: list[tuple[str, str]] = []
     for assignment in policy.assignments:
         target = assignment.get("target", {})
         odata_type = str(target.get("@odata.type", ""))
         group_id = str(target.get("groupId", "")).strip()
         if group_id and "exclusion" not in odata_type.lower():
-            targets.append((f"group:{group_id}", group_id))
+            targets.append((f"group:{group_id}", group_name_by_id.get(group_id, group_id) if group_name_by_id else group_id))
         elif "allLicensedUsers" in odata_type:
             targets.append(("all_users", "All Users"))
         elif "allDevices" in odata_type:
@@ -80,7 +83,10 @@ def _audience_targets(policy: Policy) -> list[tuple[str, str]]:
             if synthetic == "__ALL__":
                 targets.append(("all_assigned", "All Assigned"))
             else:
-                targets.append((f"group:{synthetic}", synthetic))
+                targets.append((
+                    f"group:{synthetic}",
+                    group_name_by_id.get(synthetic, synthetic) if group_name_by_id else synthetic,
+                ))
     return targets
 
 
@@ -176,6 +182,7 @@ def _make_finding(
 
 def _iter_domain_clusters(
     policies: Iterable[Policy],
+    group_name_by_id: Optional[dict[str, str]] = None,
 ) -> dict[tuple[str, str, str, str], dict[str, Any]]:
     clusters: dict[tuple[str, str, str, str], dict[str, Any]] = {}
 
@@ -189,7 +196,7 @@ def _iter_domain_clusters(
             domain = _classify_domain(entry["setting_key"], entry.get("display_name", ""))
             by_domain[domain].append(entry)
 
-        for audience_key, audience_label in _audience_targets(policy):
+        for audience_key, audience_label in _audience_targets(policy, group_name_by_id):
             for domain, entries in by_domain.items():
                 cluster_key = (
                     domain,
@@ -216,10 +223,12 @@ def _iter_domain_clusters(
 
 
 def analyze_optimization_opportunities(
-    policies: list[Policy], selected_platforms: Optional[set[str]] = None
+    policies: list[Policy],
+    selected_platforms: Optional[set[str]] = None,
+    group_name_by_id: Optional[dict[str, str]] = None,
 ) -> OptimizationAnalysisResult:
     filtered_policies = _filter_policies_by_platforms(policies, selected_platforms)
-    clusters = _iter_domain_clusters(filtered_policies)
+    clusters = _iter_domain_clusters(filtered_policies, group_name_by_id)
     findings: list[OptimizationFindingV1] = []
 
     for (domain, _audience_key, platform_key, _policy_type), cluster in clusters.items():
