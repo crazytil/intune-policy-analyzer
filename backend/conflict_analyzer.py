@@ -601,6 +601,40 @@ def analyze_conflicts_for_group(
     return _build_conflicts(targeted)
 
 
+def analyze_conflicts_for_policy(
+    policy_id: str, all_policies: List[Policy]
+) -> List[ConflictItem]:
+    """Find setting conflicts for a specific policy against all others."""
+    target_policy = None
+    for p in all_policies:
+        if p.id == policy_id:
+            target_policy = p
+            break
+    if not target_policy:
+        return []
+
+    target_groups = _get_assigned_group_ids(target_policy)
+
+    # Find all policies that share at least one assignment group with the target
+    related_policies = [target_policy]
+    for p in all_policies:
+        if p.id == policy_id:
+            continue
+        p_groups = _get_assigned_group_ids(p)
+        if target_groups & p_groups:
+            related_policies.append(p)
+
+    if len(related_policies) < 2:
+        return []
+
+    # Build conflicts but only return items where the target policy is involved
+    all_conflicts = _build_conflicts(related_policies)
+    return [
+        c for c in all_conflicts
+        if any(cp.policy_id == policy_id for cp in c.policies)
+    ]
+
+
 def analyze_all_conflicts(all_policies: List[Policy]) -> List[ConflictItem]:
     """Find setting conflicts tenant-wide among policies with overlapping assignments."""
     if len(all_policies) < 2:

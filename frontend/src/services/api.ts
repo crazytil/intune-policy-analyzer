@@ -85,3 +85,7 @@ export async function analyzeConflicts(): Promise<ConflictAnalysisResult> {
 export async function analyzeConflictsForGroup(groupId: string): Promise<ConflictAnalysisResult> {
   return request<ConflictAnalysisResult>(`${BASE}/analyze-conflicts/group/${encodeURIComponent(groupId)}`)
 }
+
+export async function analyzeConflictsForPolicy(policyId: string): Promise<ConflictAnalysisResult> {
+  return request<ConflictAnalysisResult>(`${BASE}/analyze-conflicts/policy/${encodeURIComponent(policyId)}`)
+}

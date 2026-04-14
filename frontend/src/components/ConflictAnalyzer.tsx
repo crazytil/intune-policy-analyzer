@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react'
-import type { Policy } from '../types'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import type { Policy, Group } from '../types'
 import { POLICY_TYPES } from '../types'
-import { analyzeConflicts } from '../services/api'
+import { analyzeConflicts, analyzeConflictsForGroup, analyzeConflictsForPolicy, fetchAllGroups } from '../services/api'
 import type { ConflictItem, ConflictStats } from '../services/api'
 
 interface ConflictAnalyzerProps {
@@ -9,6 +9,7 @@ interface ConflictAnalyzerProps {
 }
 
 type FilterMode = 'all' | 'conflicts' | 'matching'
+type ScopeMode = 'all' | 'group' | 'policy'
 
 function Spinner({ className = 'h-5 w-5' }: { className?: string }) {
   return (
@@ -44,12 +45,51 @@ export default function ConflictAnalyzer({ policies }: ConflictAnalyzerProps) {
   const [search, setSearch] = useState('')
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
 
-  const handleAnalyze = async () => {
+  // Scope selection
+  const [scopeMode, setScopeMode] = useState<ScopeMode>('all')
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('')
+  const [selectedPolicyId, setSelectedPolicyId] = useState<string>('')
+  const [groups, setGroups] = useState<Group[]>([])
+  const [groupFilter, setGroupFilter] = useState('')
+  const [policyFilter, setPolicyFilter] = useState('')
+
+  // Load groups on mount for the group picker
+  useEffect(() => {
+    fetchAllGroups().then(setGroups).catch(() => setGroups([]))
+  }, [])
+
+  const filteredGroups = groupFilter.trim()
+    ? groups.filter((g) => g.displayName.toLowerCase().includes(groupFilter.toLowerCase()))
+    : groups
+
+  const filteredPolicies = policyFilter.trim()
+    ? policies.filter((p) => p.displayName.toLowerCase().includes(policyFilter.toLowerCase()))
+    : policies
+
+  const scopeLabel = scopeMode === 'group'
+    ? groups.find((g) => g.id === selectedGroupId)?.displayName
+    : scopeMode === 'policy'
+      ? policies.find((p) => p.id === selectedPolicyId)?.displayName
+      : null
+
+  const canAnalyze =
+    scopeMode === 'all' ||
+    (scopeMode === 'group' && selectedGroupId) ||
+    (scopeMode === 'policy' && selectedPolicyId)
+
+  const handleAnalyze = useCallback(async () => {
     setLoading(true)
     setError(null)
     setExpandedRows(new Set())
     try {
-      const result = await analyzeConflicts()
+      let result
+      if (scopeMode === 'group' && selectedGroupId) {
+        result = await analyzeConflictsForGroup(selectedGroupId)
+      } else if (scopeMode === 'policy' && selectedPolicyId) {
+        result = await analyzeConflictsForPolicy(selectedPolicyId)
+      } else {
+        result = await analyzeConflicts()
+      }
       setConflicts(result.conflicts)
       setStats(result.stats)
     } catch (e) {
@@ -57,7 +97,7 @@ export default function ConflictAnalyzer({ policies }: ConflictAnalyzerProps) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [scopeMode, selectedGroupId, selectedPolicyId])
 
   const toggleRow = (key: string) => {
     setExpandedRows((prev) => {
@@ -106,57 +146,155 @@ export default function ConflictAnalyzer({ policies }: ConflictAnalyzerProps) {
         </div>
       )}
 
-      {/* Controls */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-        <button
-          onClick={handleAnalyze}
-          disabled={loading}
-          className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-        >
-          {loading ? (
-            <>
-              <Spinner className="h-4 w-4" />
-              Analyzing…
-            </>
-          ) : (
-            hasAnalyzed ? '↻ Re-analyze' : 'Analyze Overlapping Settings'
-          )}
-        </button>
+      {/* Scope selector */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-4">
+        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Analyze scope</p>
 
-        {hasAnalyzed && (
-          <>
-            {/* Filter chips */}
-            <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1">
-              {([
-                { key: 'all', label: 'All Overlaps' },
-                { key: 'conflicts', label: 'Conflicting Only' },
-                { key: 'matching', label: 'Matching Only' },
-              ] as const).map((chip) => (
-                <button
-                  key={chip.key}
-                  onClick={() => setFilterMode(chip.key)}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                    filterMode === chip.key
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                  }`}
-                >
-                  {chip.label}
-                </button>
-              ))}
-            </div>
+        {/* Scope mode toggle */}
+        <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-1">
+          {([
+            { key: 'all', label: '🌐 All Policies' },
+            { key: 'group', label: '👥 By Group' },
+            { key: 'policy', label: '📋 By Policy' },
+          ] as const).map((opt) => (
+            <button
+              key={opt.key}
+              onClick={() => { setScopeMode(opt.key); setConflicts(null); setStats(null) }}
+              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                scopeMode === opt.key
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
 
-            {/* Search */}
+        {/* Group picker */}
+        {scopeMode === 'group' && (
+          <div className="space-y-2">
             <input
               type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filter by setting or policy name…"
-              className="flex-1 min-w-0 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 placeholder-gray-400"
+              value={groupFilter}
+              onChange={(e) => setGroupFilter(e.target.value)}
+              placeholder="Filter groups…"
+              className="w-full max-w-md px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
             />
-          </>
+            <div className="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-700/50">
+              {filteredGroups.slice(0, 50).map((g) => (
+                <button
+                  key={g.id}
+                  onClick={() => setSelectedGroupId(g.id)}
+                  className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                    selectedGroupId === g.id
+                      ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
+                      : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
+                  }`}
+                >
+                  {g.displayName}
+                </button>
+              ))}
+              {filteredGroups.length === 0 && (
+                <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">No groups match</p>
+              )}
+            </div>
+          </div>
         )}
+
+        {/* Policy picker */}
+        {scopeMode === 'policy' && (
+          <div className="space-y-2">
+            <input
+              type="text"
+              value={policyFilter}
+              onChange={(e) => setPolicyFilter(e.target.value)}
+              placeholder="Filter policies…"
+              className="w-full max-w-md px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
+            />
+            <div className="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-700/50">
+              {filteredPolicies.slice(0, 50).map((p) => {
+                const typeInfo = POLICY_TYPES.find((t) => t.key === p.policyType)
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => setSelectedPolicyId(p.id)}
+                    className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                      selectedPolicyId === p.id
+                        ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
+                        : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
+                    }`}
+                  >
+                    <span>{p.displayName}</span>
+                    <span className="ml-2 text-xs text-gray-400">{typeInfo?.icon} {typeInfo?.label}</span>
+                  </button>
+                )
+              })}
+              {filteredPolicies.length === 0 && (
+                <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">No policies match</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Analyze button + scope label */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleAnalyze}
+            disabled={loading || !canAnalyze}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          >
+            {loading ? (
+              <>
+                <Spinner className="h-4 w-4" />
+                Analyzing…
+              </>
+            ) : (
+              hasAnalyzed ? '↻ Re-analyze' : 'Analyze Overlapping Settings'
+            )}
+          </button>
+          {scopeLabel && (
+            <span className="text-sm text-gray-500 dark:text-gray-400">
+              Scope: <span className="font-medium text-gray-700 dark:text-gray-200">{scopeLabel}</span>
+            </span>
+          )}
+        </div>
       </div>
+
+      {/* Result filter controls */}
+      {hasAnalyzed && (
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+          {/* Filter chips */}
+          <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1">
+            {([
+              { key: 'all', label: 'All Overlaps' },
+              { key: 'conflicts', label: 'Conflicting Only' },
+              { key: 'matching', label: 'Matching Only' },
+            ] as const).map((chip) => (
+              <button
+                key={chip.key}
+                onClick={() => setFilterMode(chip.key)}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  filterMode === chip.key
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                }`}
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Search */}
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter by setting or policy name…"
+            className="flex-1 min-w-0 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 placeholder-gray-400"
+          />
+        </div>
+      )}
 
       {/* Error */}
       {error && (

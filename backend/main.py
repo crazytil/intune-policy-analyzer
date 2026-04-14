@@ -16,7 +16,7 @@ from group_resolver import (
     resolve_policies_for_group,
     search_groups,
 )
-from conflict_analyzer import analyze_all_conflicts, analyze_conflicts_for_group, build_conflict_stats
+from conflict_analyzer import analyze_all_conflicts, analyze_conflicts_for_group, analyze_conflicts_for_policy, build_conflict_stats
 from models import AuthStatus, GroupPolicyMapping, Policy
 from policy_fetcher import fetch_all_policies
 
@@ -257,6 +257,31 @@ async def analyze_conflicts_for_group_route(group_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
         logger.error("Conflict analysis for group %s failed: %s", group_id, e)
+        raise HTTPException(
+            status_code=500, detail=f"Conflict analysis failed: {e}"
+        )
+
+
+@app.get("/api/analyze-conflicts/policy/{policy_id}", response_model_by_alias=True)
+async def analyze_conflicts_for_policy_route(policy_id: str) -> dict[str, Any]:
+    """Analyze conflicts for a specific policy against all others with shared assignments."""
+    if not _policies_cache:
+        raise HTTPException(
+            status_code=400,
+            detail="No policies cached — call GET /api/policies first",
+        )
+    if policy_id not in _policies_cache:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    all_policies = list(_policies_cache.values())
+    try:
+        conflicts = analyze_conflicts_for_policy(policy_id, all_policies)
+        stats = build_conflict_stats(conflicts)
+        return {
+            "conflicts": [c.model_dump(by_alias=True) for c in conflicts],
+            "stats": stats,
+        }
+    except Exception as e:
+        logger.error("Conflict analysis for policy %s failed: %s", policy_id, e)
         raise HTTPException(
             status_code=500, detail=f"Conflict analysis failed: {e}"
         )
