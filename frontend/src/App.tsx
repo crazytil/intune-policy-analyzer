@@ -29,11 +29,18 @@ function loadCache<T>(key: string, tenantId: string, userName: string): DataCach
   return null
 }
 
+function stripRawForCache(policies: Policy[]): Policy[] {
+  return policies.map(({ raw, ...rest }) => ({ ...rest, raw: {} }))
+}
+
 function saveCache<T>(key: string, tenantId: string, userName: string, data: T) {
   try {
     const cache: DataCache<T> = { tenantId, userName, data, timestamp: Date.now() }
     sessionStorage.setItem(key, JSON.stringify(cache))
-  } catch { /* ignore - storage full */ }
+  } catch {
+    // Storage full — try without raw data for policies
+    try { sessionStorage.removeItem(key) } catch { /* ignore */ }
+  }
 }
 
 function clearAllCaches() {
@@ -132,7 +139,7 @@ export default function App() {
       setGroups(groupsData)
       const now = Date.now()
       setDataLoadedAt(now)
-      saveCache(POLICY_CACHE_KEY, auth.tenantId, auth.userName, policiesData)
+      saveCache(POLICY_CACHE_KEY, auth.tenantId, auth.userName, stripRawForCache(policiesData))
       saveCache(GROUP_CACHE_KEY, auth.tenantId, auth.userName, groupsData)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load data')

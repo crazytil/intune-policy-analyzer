@@ -369,25 +369,23 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
 
           <div className="divide-y divide-gray-100 dark:divide-gray-700/50">
             {filtered.map((item) => (
-              <div key={item.settingKey}>
+              <div key={item.settingKey} className="overflow-hidden">
                 {/* Row header */}
                 <button
                   onClick={() => toggleRow(item.settingKey)}
                   className="w-full text-left px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/20 transition-colors"
                 >
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-gray-400">{expandedRows.has(item.settingKey) ? '▾' : '▸'}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{item.settingLabel || item.settingKey}</p>
-                      {item.settingLabel && item.settingLabel !== item.settingKey && (
-                        <p className="text-xs text-gray-400 dark:text-gray-500 font-mono truncate mt-0.5">{item.settingKey}</p>
-                      )}
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-xs text-gray-400 flex-shrink-0">{expandedRows.has(item.settingKey) ? '▾' : '▸'}</span>
+                    <div className="flex-1 min-w-0 overflow-hidden">
+                      <p className="text-sm font-medium truncate">{friendlySettingName(item.settingLabel || item.settingKey)}</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 font-mono truncate mt-0.5">{item.settingKey}</p>
                     </div>
-                    <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
+                    <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 whitespace-nowrap">
                       {item.policies.length} policies
                     </span>
                     <span
-                      className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded flex-shrink-0 ${
+                      className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded flex-shrink-0 whitespace-nowrap ${
                         item.hasDifferentValues
                           ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
                           : 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
@@ -400,28 +398,39 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
 
                 {/* Expanded detail */}
                 {expandedRows.has(item.settingKey) && (
-                  <div className="px-6 pb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 ml-6">
-                    {item.policies.map((p) => (
-                      <div
-                        key={p.policyId}
-                        className={`rounded-lg border p-4 ${
-                          item.hasDifferentValues
-                            ? 'border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10'
-                            : 'border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/10'
-                        }`}
-                      >
-                        <p className="text-sm font-medium truncate">{p.policyName}</p>
-                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{policyTypeLabel(p.policyType)}</p>
-                        <div className="mt-2">
-                          <p className="text-sm font-medium">
-                            <span className={`inline-block mr-1.5 ${item.hasDifferentValues ? 'text-red-500' : 'text-green-500'}`}>
-                              {item.hasDifferentValues ? '✕' : '✓'}
-                            </span>
-                            {p.valueDisplay || formatFallbackValue(p.value)}
-                          </p>
+                  <div className="px-6 pb-4 ml-6 overflow-hidden">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {item.policies.map((p) => (
+                        <div
+                          key={p.policyId}
+                          className={`rounded-lg border p-4 overflow-hidden ${
+                            item.hasDifferentValues
+                              ? 'border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10'
+                              : 'border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/10'
+                          }`}
+                        >
+                          <p className="text-sm font-medium truncate" title={p.policyName}>{p.policyName}</p>
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 truncate">{policyTypeLabel(p.policyType)}</p>
+                          <div className="mt-2 overflow-hidden">
+                            <div className="flex items-start gap-1.5">
+                              <span className={`flex-shrink-0 mt-0.5 ${item.hasDifferentValues ? 'text-red-500' : 'text-green-500'}`}>
+                                {item.hasDifferentValues ? '✕' : '✓'}
+                              </span>
+                              <div className="min-w-0 overflow-hidden">
+                                <p className="text-sm font-medium break-words">
+                                  {formatDisplayValue(p.valueDisplay, p.value)}
+                                </p>
+                                {p.value !== null && p.value !== undefined && String(p.value) !== p.valueDisplay && (
+                                  <p className="text-xs text-gray-400 dark:text-gray-500 font-mono mt-0.5 break-all">
+                                    Raw: {typeof p.value === 'object' ? JSON.stringify(p.value) : String(p.value)}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -433,7 +442,25 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
   )
 }
 
-function formatFallbackValue(value: unknown): string {
+/** Convert camelCase/PascalCase setting keys to readable names */
+function friendlySettingName(name: string): string {
+  // If it already looks readable (has spaces), return as-is
+  if (name.includes(' ')) return name
+  // Split camelCase/PascalCase, handle acronyms
+  return name
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/^./, (c) => c.toUpperCase())
+    .replace(/_/g, ' ')
+}
+
+/** Format the display value, showing English name with raw value in brackets if different */
+function formatDisplayValue(displayValue: string | undefined, rawValue: unknown): string {
+  const display = displayValue || formatRawValue(rawValue)
+  return display
+}
+
+function formatRawValue(value: unknown): string {
   if (value === null || value === undefined) return 'Not Configured'
   if (typeof value === 'boolean') return value ? 'Enabled' : 'Disabled'
   if (typeof value === 'string' || typeof value === 'number') return String(value)
