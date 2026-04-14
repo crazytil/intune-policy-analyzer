@@ -111,7 +111,7 @@ async def list_all_groups() -> list[dict[str, Any]]:
         from group_resolver import _build_group
         raw_groups = await client.get(
             "groups",
-            params={"$select": "id,displayName,description,groupTypes,membershipRule", "$top": "999", "$orderby": "displayName"},
+            params={"$select": "id,displayName,description,groupTypes,membershipRule", "$top": "999", "$orderby": "displayName", "$count": "true"},
         )
         return [_build_group(g).model_dump(by_alias=True) for g in raw_groups]
     except RuntimeError as e:
