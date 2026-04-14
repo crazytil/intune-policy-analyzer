@@ -8,7 +8,7 @@ interface ConflictAnalyzerProps {
   policies: Policy[]
 }
 
-type FilterMode = 'all' | 'conflicts' | 'duplicates'
+type FilterMode = 'all' | 'conflicts' | 'matching'
 
 function Spinner({ className = 'h-5 w-5' }: { className?: string }) {
   return (
@@ -22,25 +22,16 @@ function Spinner({ className = 'h-5 w-5' }: { className?: string }) {
 function StatCard({ label, value, icon, accent }: { label: string; value: number | string; icon: string; accent?: string }) {
   const accentClass = accent === 'red'
     ? 'text-red-600 dark:text-red-400'
-    : accent === 'amber'
-      ? 'text-amber-600 dark:text-amber-400'
-      : ''
+    : accent === 'green'
+      ? 'text-green-600 dark:text-green-400'
+      : accent === 'amber'
+        ? 'text-amber-600 dark:text-amber-400'
+        : ''
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
       <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{icon} {label}</p>
       <p className={`mt-2 text-3xl font-bold tracking-tight ${accentClass}`}>{value}</p>
     </div>
-  )
-}
-
-function ValueDisplay({ value }: { value: unknown }) {
-  if (value === null || value === undefined) return <span className="text-gray-400 italic">null</span>
-  if (typeof value === 'boolean') return <span className="font-mono">{value ? 'true' : 'false'}</span>
-  if (typeof value === 'string' || typeof value === 'number') return <span className="font-mono">{String(value)}</span>
-  return (
-    <pre className="text-xs bg-gray-50 dark:bg-gray-900 rounded p-2 overflow-x-auto max-h-32 text-gray-700 dark:text-gray-300">
-      {JSON.stringify(value, null, 2)}
-    </pre>
   )
 }
 
@@ -85,7 +76,7 @@ export default function ConflictAnalyzer({ policies }: ConflictAnalyzerProps) {
     if (!conflicts) return []
     let items = conflicts
     if (filterMode === 'conflicts') items = items.filter((c) => c.hasDifferentValues)
-    if (filterMode === 'duplicates') items = items.filter((c) => !c.hasDifferentValues)
+    if (filterMode === 'matching') items = items.filter((c) => !c.hasDifferentValues)
     if (search.trim()) {
       const q = search.toLowerCase()
       items = items.filter(
@@ -95,7 +86,6 @@ export default function ConflictAnalyzer({ policies }: ConflictAnalyzerProps) {
           c.policies.some((p) => p.policyName.toLowerCase().includes(q)),
       )
     }
-    // Sort: conflicts first, then duplicates
     return [...items].sort((a, b) => {
       if (a.hasDifferentValues === b.hasDifferentValues) return 0
       return a.hasDifferentValues ? -1 : 1
@@ -109,9 +99,9 @@ export default function ConflictAnalyzer({ policies }: ConflictAnalyzerProps) {
       {/* Stats bar */}
       {stats && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard icon="📊" label="Shared Settings" value={stats.totalSharedSettings} />
-          <StatCard icon="⚠️" label="Conflicts" value={stats.conflictCount} accent="red" />
-          <StatCard icon="📋" label="Duplicates" value={stats.duplicateCount} accent="amber" />
+          <StatCard icon="🔗" label="Overlapping Settings" value={stats.totalOverlapping} />
+          <StatCard icon="⚠️" label="Conflicting" value={stats.conflictCount} accent="red" />
+          <StatCard icon="✅" label="Matching" value={stats.matchingCount} accent="green" />
           <StatCard icon="📦" label="Affected Policies" value={stats.affectedPolicies} />
         </div>
       )}
@@ -129,7 +119,7 @@ export default function ConflictAnalyzer({ policies }: ConflictAnalyzerProps) {
               Analyzing…
             </>
           ) : (
-            hasAnalyzed ? '↻ Re-analyze' : 'Start Analysis'
+            hasAnalyzed ? '↻ Re-analyze' : 'Analyze Overlapping Settings'
           )}
         </button>
 
@@ -138,9 +128,9 @@ export default function ConflictAnalyzer({ policies }: ConflictAnalyzerProps) {
             {/* Filter chips */}
             <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1">
               {([
-                { key: 'all', label: 'All' },
-                { key: 'conflicts', label: 'Conflicts Only' },
-                { key: 'duplicates', label: 'Duplicates Only' },
+                { key: 'all', label: 'All Overlaps' },
+                { key: 'conflicts', label: 'Conflicting Only' },
+                { key: 'matching', label: 'Matching Only' },
               ] as const).map((chip) => (
                 <button
                   key={chip.key}
@@ -179,7 +169,7 @@ export default function ConflictAnalyzer({ policies }: ConflictAnalyzerProps) {
       {!hasAnalyzed && !loading && (
         <div className="text-center py-16 text-gray-400 dark:text-gray-500">
           <p className="text-lg mb-2">🔍</p>
-          <p className="text-sm">Click &ldquo;Start Analysis&rdquo; to scan all policies for overlapping settings</p>
+          <p className="text-sm">Click &ldquo;Analyze Overlapping Settings&rdquo; to scan all policies for overlapping settings</p>
           {policies.length === 0 && (
             <p className="text-xs mt-2 text-gray-300 dark:text-gray-600">Load policies from the Dashboard first</p>
           )}
@@ -232,13 +222,13 @@ export default function ConflictAnalyzer({ policies }: ConflictAnalyzerProps) {
                       {item.policies.length} policies
                     </span>
                     <span
-                      className={`inline-block text-xs font-medium px-2 py-0.5 rounded flex-shrink-0 ${
+                      className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded flex-shrink-0 ${
                         item.hasDifferentValues
                           ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
-                          : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                          : 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
                       }`}
                     >
-                      {item.hasDifferentValues ? 'Conflict' : 'Duplicate'}
+                      {item.hasDifferentValues ? '✕ Conflict' : '✓ Matching'}
                     </span>
                   </div>
                 </button>
@@ -252,14 +242,18 @@ export default function ConflictAnalyzer({ policies }: ConflictAnalyzerProps) {
                         className={`rounded-lg border p-4 ${
                           item.hasDifferentValues
                             ? 'border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10'
-                            : 'border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10'
+                            : 'border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/10'
                         }`}
                       >
                         <p className="text-sm font-medium truncate">{p.policyName}</p>
                         <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{policyTypeLabel(p.policyType)}</p>
-                        <div className="mt-2 text-sm">
-                          <span className="text-xs text-gray-400 dark:text-gray-500">Value: </span>
-                          <ValueDisplay value={p.value} />
+                        <div className="mt-2">
+                          <p className="text-sm font-medium">
+                            <span className={`inline-block mr-1.5 ${item.hasDifferentValues ? 'text-red-500' : 'text-green-500'}`}>
+                              {item.hasDifferentValues ? '✕' : '✓'}
+                            </span>
+                            {p.valueDisplay || formatFallbackValue(p.value)}
+                          </p>
                         </div>
                       </div>
                     ))}
@@ -272,4 +266,11 @@ export default function ConflictAnalyzer({ policies }: ConflictAnalyzerProps) {
       )}
     </div>
   )
+}
+
+function formatFallbackValue(value: unknown): string {
+  if (value === null || value === undefined) return 'Not Configured'
+  if (typeof value === 'boolean') return value ? 'Enabled' : 'Disabled'
+  if (typeof value === 'string' || typeof value === 'number') return String(value)
+  return JSON.stringify(value)
 }

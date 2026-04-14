@@ -27,6 +27,10 @@ export async function fetchPolicies(): Promise<Policy[]> {
   return request<Policy[]>(`${BASE}/policies`)
 }
 
+export async function fetchAllGroups(): Promise<Group[]> {
+  return request<Group[]>(`${BASE}/groups`)
+}
+
 export async function searchGroups(query: string): Promise<Group[]> {
   return request<Group[]>(`${BASE}/groups/search?q=${encodeURIComponent(query)}`)
 }
@@ -52,6 +56,7 @@ export interface ConflictPolicy {
   policyName: string
   policyType: string
   value: unknown
+  valueDisplay: string
 }
 
 export interface ConflictItem {
@@ -62,9 +67,9 @@ export interface ConflictItem {
 }
 
 export interface ConflictStats {
-  totalSharedSettings: number
+  totalOverlapping: number
   conflictCount: number
-  duplicateCount: number
+  matchingCount: number
   affectedPolicies: number
 }
 

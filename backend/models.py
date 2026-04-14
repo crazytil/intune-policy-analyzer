@@ -96,6 +96,7 @@ class ConflictPolicy(BaseModel):
     policy_name: str
     policy_type: str
     value: Any = None
+    value_display: str = ""
 
 
 class ConflictItem(BaseModel):

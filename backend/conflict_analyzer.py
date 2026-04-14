@@ -1,12 +1,131 @@
 from __future__ import annotations
 
+import json
 import logging
+import re
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Set
 
 from models import ConflictItem, ConflictPolicy, Policy, PolicyType
 
 logger = logging.getLogger(__name__)
+
+# ── Friendly name mappings ───────────────────────────────────────────────────
+
+# Common Device Configuration / Compliance property → friendly name
+_DEVICE_CONFIG_NAMES: Dict[str, str] = {
+    "passwordRequired": "Require Password",
+    "passwordMinimumLength": "Minimum Password Length",
+    "passwordBlockSimple": "Block Simple Passwords",
+    "passwordRequiredType": "Required Password Type",
+    "passwordMinutesOfInactivityBeforeLock": "Minutes of Inactivity Before Lock",
+    "passwordExpirationDays": "Password Expiration (Days)",
+    "passwordPreviousPasswordBlockCount": "Previous Passwords Blocked",
+    "passwordMinimumCharacterSetCount": "Minimum Character Sets",
+    "passwordRequiredToUnlockFromIdle": "Require Password to Unlock from Idle",
+    "firewallEnabled": "Enable Firewall",
+    "firewallBlockAllIncoming": "Block All Incoming Connections",
+    "firewallEnableStealthMode": "Enable Stealth Mode",
+    "firewallProfileDomain": "Firewall Domain Profile",
+    "firewallProfilePrivate": "Firewall Private Profile",
+    "firewallProfilePublic": "Firewall Public Profile",
+    "bitLockerEnabled": "Enable BitLocker",
+    "bitLockerAllowStandardUserEncryption": "Allow Standard User Encryption",
+    "bitLockerSystemDrivePolicy": "BitLocker System Drive Policy",
+    "bitLockerFixedDrivePolicy": "BitLocker Fixed Drive Policy",
+    "bitLockerRemovableDrivePolicy": "BitLocker Removable Drive Policy",
+    "defenderEnabled": "Enable Defender",
+    "defenderRequireRealTimeMonitoring": "Require Real-Time Monitoring",
+    "defenderScanType": "Defender Scan Type",
+    "defenderScheduledScanTime": "Scheduled Scan Time",
+    "defenderCloudBlockLevel": "Cloud Block Level",
+    "defenderPotentiallyUnwantedAppAction": "Potentially Unwanted App Action",
+    "defenderSubmitSamplesConsentType": "Submit Samples Consent",
+    "storageRequireEncryption": "Require Storage Encryption",
+    "storageRequireDeviceEncryption": "Require Device Encryption",
+    "securityBlockJailbrokenDevices": "Block Jailbroken Devices",
+    "deviceThreatProtectionEnabled": "Enable Threat Protection",
+    "deviceThreatProtectionRequiredSecurityLevel": "Required Threat Protection Level",
+    "osMinimumVersion": "Minimum OS Version",
+    "osMaximumVersion": "Maximum OS Version",
+    "osMinimumBuildVersion": "Minimum OS Build Version",
+    "osMaximumBuildVersion": "Maximum OS Build Version",
+    "earlyLaunchAntiMalwareDriverEnabled": "Early Launch Anti-Malware Driver",
+    "secureBootEnabled": "Require Secure Boot",
+    "codeIntegrityEnabled": "Require Code Integrity",
+    "tpmRequired": "Require TPM",
+    "activeFirewallRequired": "Require Active Firewall",
+    "antiSpywareRequired": "Require Anti-Spyware",
+    "antivirusRequired": "Require Antivirus",
+    "realTimeProtectionEnabled": "Require Real-Time Protection",
+    "signatureOutOfDate": "Block Outdated Signatures",
+    "rtpEnabled": "Real-Time Protection",
+    "avEnabled": "Antivirus Enabled",
+    "windowsHealthMonitoring": "Windows Health Monitoring",
+    "configurationProfileBlockChanges": "Block Configuration Profile Changes",
+    "compliantAppsList": "Compliant Apps List",
+    "appsBlockClipboardSharing": "Block Clipboard Sharing",
+    "appsBlockCopyPaste": "Block Copy/Paste",
+    "appsBlockYouTube": "Block YouTube",
+    "cameraBlocked": "Block Camera",
+    "cellularBlockDataRoaming": "Block Data Roaming",
+    "cellularBlockMessaging": "Block Messaging",
+    "cellularBlockVoiceRoaming": "Block Voice Roaming",
+    "cellularBlockWiFiTethering": "Block WiFi Tethering",
+    "diagnosticDataBlockSubmission": "Block Diagnostic Data Submission",
+    "locationServicesBlocked": "Block Location Services",
+    "screenCaptureBlocked": "Block Screen Capture",
+    "bluetoothBlocked": "Block Bluetooth",
+    "nfcBlocked": "Block NFC",
+    "wifiBlocked": "Block WiFi",
+    "wifiBlockAutomaticConnectHotspots": "Block Auto-Connect Hotspots",
+    "wifiBlockManualConfiguration": "Block Manual WiFi Configuration",
+    "edgeBlocked": "Block Edge Browser",
+    "edgeCookiePolicy": "Edge Cookie Policy",
+    "edgeBlockPopups": "Edge Block Popups",
+    "edgeBlockSearchSuggestions": "Edge Block Search Suggestions",
+    "edgeSendIntranetTrafficToInternetExplorer": "Send Intranet Traffic to IE",
+    "internetSharingBlocked": "Block Internet Sharing",
+    "settingsBlockEditDeviceName": "Block Edit Device Name",
+    "settingsBlockAddProvisioningPackage": "Block Add Provisioning Package",
+    "settingsBlockRemoveProvisioningPackage": "Block Remove Provisioning Package",
+    "experienceBlockDeviceDiscovery": "Block Device Discovery",
+    "experienceBlockTaskSwitcher": "Block Task Switcher",
+    "experienceBlockErrorDialogWhenNoSIM": "Block Error Dialog When No SIM",
+    "startBlockUnpinningAppsFromTaskbar": "Block Unpinning Apps from Taskbar",
+    "windowsSpotlightBlocked": "Block Windows Spotlight",
+    "windowsStoreBlocked": "Block Windows Store",
+    "windowsStoreEnablePrivateStoreOnly": "Enable Private Store Only",
+    "searchBlockDiacritics": "Block Diacritics in Search",
+    "searchDisableAutoLanguageDetection": "Disable Auto Language Detection",
+    "searchDisableIndexingEncryptedItems": "Disable Indexing Encrypted Items",
+    "searchDisableIndexerBackoff": "Disable Indexer Backoff",
+    "updateServiceUrl": "Windows Update Service URL",
+}
+
+# Conditional Access grant control mapping
+_CA_GRANT_CONTROLS: Dict[str, str] = {
+    "mfa": "Require MFA",
+    "compliantDevice": "Require Compliant Device",
+    "domainJoinedDevice": "Require Hybrid Azure AD Joined Device",
+    "approvedApplication": "Require Approved Client App",
+    "compliantApplication": "Require App Protection Policy",
+    "passwordChange": "Require Password Change",
+    "block": "Block Access",
+}
+
+# Conditional Access condition friendly names
+_CA_CONDITION_NAMES: Dict[str, str] = {
+    "users": "Users & Groups",
+    "applications": "Cloud Apps",
+    "clientAppTypes": "Client App Types",
+    "locations": "Locations",
+    "platforms": "Device Platforms",
+    "devices": "Device Filters",
+    "signInRiskLevels": "Sign-in Risk Levels",
+    "userRiskLevels": "User Risk Levels",
+    "servicePrincipalRiskLevels": "Service Principal Risk Levels",
+}
 
 # Metadata fields to skip when extracting settings from raw policy dicts
 _RAW_SKIP_FIELDS: Set[str] = {
@@ -35,6 +154,53 @@ _RAW_SKIP_FIELDS: Set[str] = {
 }
 
 
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _camel_to_title(name: str) -> str:
+    """Convert camelCase to Title Case With Spaces."""
+    s = re.sub(r"([A-Z])", r" \1", name)
+    return s.strip().title()
+
+
+def _friendly_name_for_property(key: str) -> str:
+    """Get a friendly display name for a device config / compliance property."""
+    if key in _DEVICE_CONFIG_NAMES:
+        return _DEVICE_CONFIG_NAMES[key]
+    return _camel_to_title(key)
+
+
+def _format_value_display(value: Any) -> str:
+    """Return a human-readable display string for a setting value."""
+    if value is None:
+        return "Not Configured"
+    if isinstance(value, bool):
+        return "Enabled" if value else "Disabled"
+    if isinstance(value, str):
+        low = value.lower()
+        if low in ("true", "yes"):
+            return "Enabled"
+        if low in ("false", "no"):
+            return "Disabled"
+        if low == "notconfigured":
+            return "Not Configured"
+        # For enum-like values ending in _enabled/_disabled/_required etc.
+        if "_" in value:
+            return value.replace("_", " ").title()
+        return value
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, list):
+        if not value:
+            return "None"
+        if all(isinstance(v, str) for v in value):
+            return ", ".join(value)
+        return json.dumps(value, indent=2)
+    if isinstance(value, dict):
+        return json.dumps(value, indent=2)
+    return str(value)
+
+
 def _normalize_value(value: Any) -> Any:
     """Normalize a value for comparison — canonical form for bools, None, etc."""
     if value is None:
@@ -57,39 +223,44 @@ def _normalize_value(value: Any) -> Any:
     return value
 
 
-def _make_setting_label(key: str) -> str:
-    """Generate a human-readable label from a setting key."""
-    # key format: policyType:path.to.setting
-    parts = key.split(":", 1)
-    if len(parts) == 2:
-        return parts[1].replace(".", " › ").replace("_", " ")
-    return key
-
-
 # ── Setting extraction per policy type ───────────────────────────────────────
 
 
-def _extract_raw_settings(
-    policy: Policy, prefix: str
-) -> List[Dict[str, Any]]:
+def _make_entry(
+    setting_key: str,
+    display_name: str,
+    value: Any,
+    policy: Policy,
+    policy_type_str: str,
+) -> Dict[str, Any]:
+    """Build a standardized setting entry dict."""
+    norm = _normalize_value(value)
+    return {
+        "setting_key": setting_key,
+        "display_name": display_name,
+        "value": norm,
+        "value_display": _format_value_display(norm),
+        "policy_id": policy.id,
+        "policy_name": policy.display_name,
+        "policy_type": policy_type_str,
+    }
+
+
+def _extract_raw_settings(policy: Policy, prefix: str) -> List[Dict[str, Any]]:
     """Extract settings from the raw dict (Device Config, Compliance, etc.)."""
     results: List[Dict[str, Any]] = []
     raw = policy.raw
     for key, value in raw.items():
         if key.startswith("@") or key in _RAW_SKIP_FIELDS:
             continue
-        setting_key = f"{prefix}:{key}"
         norm = _normalize_value(value)
         if norm is None:
             continue
-        results.append({
-            "setting_key": setting_key,
-            "setting_label": _make_setting_label(setting_key),
-            "value": norm,
-            "policy_id": policy.id,
-            "policy_name": policy.display_name,
-            "policy_type": prefix,
-        })
+        setting_key = f"{prefix}:{key}"
+        display_name = _friendly_name_for_property(key)
+        results.append(
+            _make_entry(setting_key, display_name, value, policy, prefix)
+        )
     return results
 
 
@@ -104,23 +275,47 @@ def _extract_settings_catalog(policy: Policy) -> List[Dict[str, Any]]:
         if not definition_id:
             continue
 
+        # Try to get friendly name from embedded settingDefinitions
+        display_name = _resolve_catalog_display_name(setting, definition_id)
+
         # Extract value based on setting instance type
         value = _extract_setting_instance_value(instance, odata_type)
 
         setting_key = f"{prefix}:{definition_id}"
-        norm = _normalize_value(value)
-        results.append({
-            "setting_key": setting_key,
-            "setting_label": _make_setting_label(setting_key),
-            "value": norm,
-            "policy_id": policy.id,
-            "policy_name": policy.display_name,
-            "policy_type": prefix,
-        })
+        results.append(
+            _make_entry(setting_key, display_name, value, policy, prefix)
+        )
     return results
 
 
-def _extract_setting_instance_value(instance: dict[str, Any], odata_type: str) -> Any:
+def _resolve_catalog_display_name(
+    setting: Dict[str, Any], definition_id: str
+) -> str:
+    """Get the display name from settingDefinitions if available."""
+    definitions = setting.get("settingDefinitions", [])
+    if definitions:
+        # Match by definitionId or just take the first that looks right
+        for defn in definitions:
+            if defn.get("id", "") == definition_id:
+                name = defn.get("displayName", "")
+                if name:
+                    return name
+        # Fallback: use the first definition's displayName
+        first_name = definitions[0].get("displayName", "")
+        if first_name:
+            return first_name
+
+    # Fallback: extract a readable name from the definition ID
+    # Format: device_vendor_msft_policy_config_<category>_<setting>
+    parts = definition_id.rsplit("_", 1)
+    if len(parts) > 1:
+        return _camel_to_title(parts[-1])
+    return definition_id
+
+
+def _extract_setting_instance_value(
+    instance: Dict[str, Any], odata_type: str
+) -> Any:
     """Extract the value from a setting instance based on its @odata.type."""
     type_lower = odata_type.lower()
     if "choicesettinginstance" in type_lower:
@@ -156,26 +351,28 @@ def _extract_endpoint_security(policy: Policy) -> List[Dict[str, Any]]:
         definition_id = setting.get("definitionId", "")
         if not definition_id:
             continue
-        value = setting.get("valueJson") or setting.get("value")
-        # Try to parse valueJson
-        if isinstance(value, str):
-            import json
 
+        # Use category display name + definition if available
+        cat_name = setting.get("_categoryDisplayName", "")
+        display_name = setting.get("displayName", "")
+        if not display_name:
+            # Try to extract from definitionId
+            parts = definition_id.rsplit("_", 1)
+            display_name = _camel_to_title(parts[-1]) if len(parts) > 1 else definition_id
+        if cat_name and display_name:
+            display_name = f"{cat_name} › {display_name}"
+
+        value = setting.get("valueJson") or setting.get("value")
+        if isinstance(value, str):
             try:
                 value = json.loads(value)
             except (json.JSONDecodeError, ValueError):
                 pass
 
         setting_key = f"{prefix}:{definition_id}"
-        norm = _normalize_value(value)
-        results.append({
-            "setting_key": setting_key,
-            "setting_label": _make_setting_label(setting_key),
-            "value": norm,
-            "policy_id": policy.id,
-            "policy_name": policy.display_name,
-            "policy_type": prefix,
-        })
+        results.append(
+            _make_entry(setting_key, display_name, value, policy, prefix)
+        )
     return results
 
 
@@ -187,17 +384,14 @@ def _extract_group_policy_admx(policy: Policy) -> List[Dict[str, Any]]:
         def_id = setting.get("id", "")
         enabled = setting.get("enabled")
         definition = setting.get("definition", {})
-        display_name = definition.get("displayName", def_id)
+        display_name = definition.get("displayName", "")
+        if not display_name:
+            display_name = _camel_to_title(def_id) if def_id else "Unknown Setting"
 
         setting_key = f"{prefix}:{def_id}"
-        results.append({
-            "setting_key": setting_key,
-            "setting_label": display_name or _make_setting_label(setting_key),
-            "value": _normalize_value(enabled),
-            "policy_id": policy.id,
-            "policy_name": policy.display_name,
-            "policy_type": prefix,
-        })
+        results.append(
+            _make_entry(setting_key, display_name, enabled, policy, prefix)
+        )
     return results
 
 
@@ -209,48 +403,48 @@ def _extract_conditional_access(policy: Policy) -> List[Dict[str, Any]]:
 
     conditions = raw.get("conditions", {})
     for cond_key, cond_val in conditions.items():
-        setting_key = f"{prefix}:conditions.{cond_key}"
         norm = _normalize_value(cond_val)
         if norm is None:
             continue
-        results.append({
-            "setting_key": setting_key,
-            "setting_label": _make_setting_label(setting_key),
-            "value": norm,
-            "policy_id": policy.id,
-            "policy_name": policy.display_name,
-            "policy_type": prefix,
-        })
+        setting_key = f"{prefix}:conditions.{cond_key}"
+        display_name = _CA_CONDITION_NAMES.get(cond_key, _camel_to_title(cond_key))
+        results.append(
+            _make_entry(setting_key, display_name, cond_val, policy, prefix)
+        )
 
     grant_controls = raw.get("grantControls")
     if grant_controls:
         setting_key = f"{prefix}:grantControls"
-        results.append({
-            "setting_key": setting_key,
-            "setting_label": _make_setting_label(setting_key),
-            "value": _normalize_value(grant_controls),
-            "policy_id": policy.id,
-            "policy_name": policy.display_name,
-            "policy_type": prefix,
-        })
+        # Build friendly display from builtInControls
+        built_in = grant_controls.get("builtInControls", [])
+        friendly_controls = [
+            _CA_GRANT_CONTROLS.get(c, _camel_to_title(c)) for c in built_in
+        ]
+        operator = grant_controls.get("operator", "OR")
+        display_name = "Grant Controls"
+        value_display_parts = friendly_controls if friendly_controls else ["Custom Controls"]
+        entry = _make_entry(setting_key, display_name, grant_controls, policy, prefix)
+        entry["value_display"] = f" {operator} ".join(value_display_parts)
+        results.append(entry)
 
     session_controls = raw.get("sessionControls")
     if session_controls:
         setting_key = f"{prefix}:sessionControls"
-        results.append({
-            "setting_key": setting_key,
-            "setting_label": _make_setting_label(setting_key),
-            "value": _normalize_value(session_controls),
-            "policy_id": policy.id,
-            "policy_name": policy.display_name,
-            "policy_type": prefix,
-        })
+        display_name = "Session Controls"
+        results.append(
+            _make_entry(setting_key, display_name, session_controls, policy, prefix)
+        )
 
     return results
 
 
 def _extract_settings(policy: Policy) -> List[Dict[str, Any]]:
-    """Extract normalized settings from any policy type."""
+    """Extract normalized settings from any policy type.
+
+    Returns list of dicts with keys:
+        setting_key, display_name, value, value_display,
+        policy_id, policy_name, policy_type
+    """
     try:
         ptype = policy.policy_type
 
@@ -304,7 +498,6 @@ def _get_assigned_group_ids(policy: Policy) -> Set[str]:
         if "allLicensedUsers" in odata_type or "allDevices" in odata_type:
             has_all = True
     if has_all:
-        # Sentinel to indicate "targets everyone"
         group_ids.add("__ALL__")
     return group_ids
 
@@ -317,7 +510,6 @@ def _policies_have_overlapping_assignments(
     groups_b = _get_assigned_group_ids(policy_b)
     if not groups_a or not groups_b:
         return False
-    # If either targets all, they overlap
     if "__ALL__" in groups_a or "__ALL__" in groups_b:
         return True
     return bool(groups_a & groups_b)
@@ -326,11 +518,8 @@ def _policies_have_overlapping_assignments(
 # ── Conflict analysis ────────────────────────────────────────────────────────
 
 
-def _build_conflicts(
-    policies: List[Policy],
-) -> List[ConflictItem]:
+def _build_conflicts(policies: List[Policy]) -> List[ConflictItem]:
     """Given a list of policies, find shared settings and classify conflicts vs duplicates."""
-    # setting_key -> list of extracted setting dicts
     settings_map: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
 
     for policy in policies:
@@ -344,7 +533,7 @@ def _build_conflicts(
         if len(entries) < 2:
             continue
 
-        # De-duplicate by policy_id (same policy shouldn't conflict with itself)
+        # De-duplicate by policy_id
         seen_policy_ids: Set[str] = set()
         unique_entries: List[Dict[str, Any]] = []
         for entry in entries:
@@ -365,17 +554,18 @@ def _build_conflicts(
                 policy_name=entry["policy_name"],
                 policy_type=entry["policy_type"],
                 value=entry["value"],
+                value_display=entry.get("value_display", ""),
             )
             for entry in unique_entries
         ]
 
-        # Use label from first entry
-        label = unique_entries[0].get("setting_label", "")
+        # Use display_name from first entry
+        display_name = unique_entries[0].get("display_name", "")
 
         conflicts.append(
             ConflictItem(
                 setting_key=setting_key,
-                setting_label=label,
+                setting_label=display_name,
                 has_different_values=has_different,
                 policies=conflict_policies,
             )
@@ -394,13 +584,7 @@ def analyze_conflicts_for_group(
     all_policies: List[Policy],
     group_policy_mappings: List[Dict[str, Any]],
 ) -> List[ConflictItem]:
-    """Find setting conflicts among policies targeting a specific group.
-
-    ``group_policy_mappings`` is the resolved list of GroupPolicyMapping dicts
-    that contain the policies applying to *group_id*.  We flatten all policies
-    from the mappings and analyse them.
-    """
-    # Collect all policy IDs that target this group
+    """Find setting conflicts among policies targeting a specific group."""
     policy_ids: Set[str] = set()
     for mapping in group_policy_mappings:
         policies_in_mapping = mapping.get("policies", [])
@@ -409,7 +593,6 @@ def analyze_conflicts_for_group(
             if pid:
                 policy_ids.add(pid)
 
-    # Filter all_policies to only those targeting this group
     targeted = [p for p in all_policies if p.id in policy_ids]
 
     if len(targeted) < 2:
@@ -423,11 +606,6 @@ def analyze_all_conflicts(all_policies: List[Policy]) -> List[ConflictItem]:
     if len(all_policies) < 2:
         return []
 
-    # Build overlap groups: for each pair of policies that overlap, combine
-    # their settings.  To avoid O(n²) on the full list, group by assignment
-    # target first.
-
-    # group_id -> list of policies
     group_to_policies: Dict[str, List[Policy]] = defaultdict(list)
 
     for policy in all_policies:
@@ -437,14 +615,11 @@ def analyze_all_conflicts(all_policies: List[Policy]) -> List[ConflictItem]:
         for gid in group_ids:
             group_to_policies[gid].append(policy)
 
-    # Collect all policies that share at least one assignment target
     overlapping_sets: List[List[Policy]] = []
     for gid, policies in group_to_policies.items():
         if len(policies) >= 2:
             overlapping_sets.append(policies)
 
-    # Merge into a single de-duplicated list of policies that overlap with
-    # at least one other policy
     seen_ids: Set[str] = set()
     overlapping_policies: List[Policy] = []
     for pset in overlapping_sets:
@@ -474,8 +649,8 @@ def build_conflict_stats(conflicts: List[ConflictItem]) -> Dict[str, Any]:
             duplicate_count += 1
 
     return {
-        "totalSharedSettings": len(conflicts),
+        "totalOverlapping": len(conflicts),
         "conflictCount": conflict_count,
-        "duplicateCount": duplicate_count,
+        "matchingCount": duplicate_count,
         "affectedPolicies": len(affected_policy_ids),
     }

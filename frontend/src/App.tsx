@@ -31,10 +31,23 @@ export default function App() {
 
   useEffect(() => {
     getAuthStatus()
-      .then(setAuth)
-      .catch(() => setAuth({ isAuthenticated: false, userName: null, tenantId: null }))
+      .then((status) => {
+        setAuth(status)
+        return status
+      })
+      .catch(() => {
+        setAuth({ isAuthenticated: false, userName: null, tenantId: null })
+        return null
+      })
       .finally(() => setAuthLoading(false))
   }, [])
+
+  // Auto-load policies when authenticated and none loaded
+  useEffect(() => {
+    if (auth?.isAuthenticated && policies.length === 0 && !policiesLoading) {
+      handleLoadPolicies()
+    }
+  }, [auth?.isAuthenticated]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLogin = async () => {
     setError(null)

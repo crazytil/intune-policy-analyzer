@@ -108,6 +108,11 @@ async def _fetch_settings(
                     s["_categoryDisplayName"] = category.get("displayName", "")
                 all_settings.extend(cat_settings)
             return all_settings
+        elif policy_type in (PolicyType.SETTINGS_CATALOG, PolicyType.COMPLIANCE_V2):
+            return await client.get(
+                f"{endpoint}/{policy_id}/{settings_endpoint}",
+                params={"$expand": "settingDefinitions"},
+            )
         else:
             return await client.get(
                 f"{endpoint}/{policy_id}/{settings_endpoint}"

@@ -103,6 +103,24 @@ async def get_policy(policy_id: str) -> Policy:
 # ── Group routes ─────────────────────────────────────────────────────────────
 
 
+@app.get("/api/groups")
+async def list_all_groups() -> list[dict[str, Any]]:
+    """Fetch all groups from the tenant."""
+    client = _get_graph_client()
+    try:
+        from group_resolver import _build_group
+        raw_groups = await client.get(
+            "groups",
+            params={"$select": "id,displayName,description,groupTypes,membershipRule", "$top": "999", "$orderby": "displayName"},
+        )
+        return [_build_group(g).model_dump(by_alias=True) for g in raw_groups]
+    except RuntimeError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        logger.error("Failed to list groups: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to list groups: {e}")
+
+
 @app.get("/api/groups/search")
 async def search_groups_route(q: str = Query(..., min_length=1)) -> list[dict[str, Any]]:
     """Search groups by display name."""

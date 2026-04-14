@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { Policy, Group, GroupPolicyMapping } from '../types'
 import { POLICY_TYPES } from '../types'
-import { searchGroups, getGroupPolicies, getPolicyGroups } from '../services/api'
+import { fetchAllGroups, getGroupPolicies, getPolicyGroups } from '../services/api'
 import type { PolicyGroupTarget } from '../services/api'
 
 interface GroupExplorerProps {
@@ -61,34 +61,29 @@ function SettingsView({ settings }: { settings: unknown[] }) {
 
 function GroupToPolicies() {
   const [query, setQuery] = useState('')
-  const [groups, setGroups] = useState<Group[]>([])
-  const [searching, setSearching] = useState(false)
+  const [allGroups, setAllGroups] = useState<Group[]>([])
+  const [loadingGroups, setLoadingGroups] = useState(false)
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
   const [mappings, setMappings] = useState<GroupPolicyMapping[]>([])
   const [loadingPolicies, setLoadingPolicies] = useState(false)
   const [expandedPolicies, setExpandedPolicies] = useState<Set<string>>(new Set())
   const [collapsedTypes, setCollapsedTypes] = useState<Set<string>>(new Set())
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Load all groups on mount
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (query.trim().length < 2) {
-      setGroups([])
-      return
-    }
-    setSearching(true)
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const results = await searchGroups(query.trim())
-        setGroups(results)
-      } catch {
-        setGroups([])
-      } finally {
-        setSearching(false)
-      }
-    }, 300)
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [query])
+    setLoadingGroups(true)
+    fetchAllGroups()
+      .then(setAllGroups)
+      .catch(() => setAllGroups([]))
+      .finally(() => setLoadingGroups(false))
+  }, [])
+
+  // Client-side filter
+  const filtered = query.trim()
+    ? allGroups.filter((g) =>
+        g.displayName.toLowerCase().includes(query.toLowerCase())
+      )
+    : allGroups
 
   const handleSelectGroup = useCallback(async (group: Group) => {
     setSelectedGroup(group)
@@ -146,26 +141,32 @@ function GroupToPolicies() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search groups…"
+            placeholder="Filter groups…"
             className="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 placeholder-gray-400"
           />
-          {searching && (
+          {loadingGroups && (
             <div className="absolute right-3 top-2.5">
               <Spinner className="h-4 w-4 text-gray-400" />
             </div>
           )}
         </div>
 
-        <div className="mt-3 flex-1 overflow-y-auto space-y-1">
-          {groups.length === 0 && query.length >= 2 && !searching && (
-            <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">No groups found</p>
+        <p className="text-xs text-gray-400 dark:text-gray-500 mt-2 px-1">
+          {allGroups.length} groups{query.trim() ? ` · ${filtered.length} shown` : ''}
+        </p>
+
+        <div className="mt-2 flex-1 overflow-y-auto space-y-1">
+          {loadingGroups && (
+            <div className="flex items-center justify-center py-12">
+              <Spinner className="h-6 w-6 text-blue-500" />
+            </div>
           )}
-          {groups.length === 0 && query.length < 2 && (
+          {!loadingGroups && filtered.length === 0 && (
             <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">
-              Search for a group to get started
+              {query.trim() ? 'No groups match your filter' : 'No groups found'}
             </p>
           )}
-          {groups.map((group) => (
+          {filtered.map((group) => (
             <button
               key={group.id}
               onClick={() => handleSelectGroup(group)}
