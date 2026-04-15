@@ -104,6 +104,74 @@ class GraphClient:
         response.raise_for_status()
         return response.json()
 
+    async def batch_get(
+        self,
+        endpoints: List[str],
+        params_by_endpoint: Optional[Dict[str, Dict[str, str]]] = None,
+    ) -> Dict[str, list[dict[str, Any]]]:
+        results: Dict[str, list[dict[str, Any]]] = {}
+        if not endpoints:
+            return results
+
+        chunk_size = 20
+        for start in range(0, len(endpoints), chunk_size):
+            chunk = endpoints[start : start + chunk_size]
+            requests = []
+            request_map: Dict[str, str] = {}
+
+            for index, endpoint in enumerate(chunk, start=1):
+                request_id = str(index)
+                request_map[request_id] = endpoint
+                url = f"/{endpoint.lstrip('/')}"
+                params = (params_by_endpoint or {}).get(endpoint)
+                if params:
+                    query = httpx.QueryParams(params)
+                    url = f"{url}?{query}"
+                requests.append(
+                    {
+                        "id": request_id,
+                        "method": "GET",
+                        "url": url,
+                    }
+                )
+
+            response = await self._request_with_retry(
+                "POST",
+                f"{settings.graph_base_url}/$batch",
+                json={"requests": requests},
+            )
+            response.raise_for_status()
+            payload = response.json()
+
+            for item in payload.get("responses", []):
+                endpoint = request_map.get(str(item.get("id")))
+                if not endpoint:
+                    continue
+                status = int(item.get("status", 0))
+                body = item.get("body", {})
+                if status >= 400:
+                    logger.warning("Batch request failed for %s with status %s", endpoint, status)
+                    results[endpoint] = []
+                    continue
+                results[endpoint] = await self._collect_batch_items(body)
+
+        return results
+
+    async def _collect_batch_items(self, body: Any) -> list[dict[str, Any]]:
+        if isinstance(body, dict) and "value" in body:
+            items = list(body.get("value", []))
+            next_url = body.get("@odata.nextLink")
+            while next_url:
+                response = await self._request_with_retry("GET", next_url)
+                response.raise_for_status()
+                page = response.json()
+                items.extend(page.get("value", []))
+                next_url = page.get("@odata.nextLink")
+            return items
+        if isinstance(body, list):
+            return body
+        return [body] if body else []
+
     async def close(self) -> None:
         if self._client and not self._client.is_closed:
             await self._client.aclose()

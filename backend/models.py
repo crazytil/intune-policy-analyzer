@@ -128,10 +128,12 @@ class OptimizationPolicyPreview(BaseModel):
     policy_type: str
     platform: str | None = None
     setting_count: int = 0
+    affected_settings: list[str] = Field(default_factory=list)
 
 
 class OptimizationFindingV1(BaseModel):
     model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+    finding_id: str
     recommendation_type: OptimizationRecommendationType
     title: str
     summary: str

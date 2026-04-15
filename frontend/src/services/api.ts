@@ -170,10 +170,11 @@ export async function analyzeConflictsForTarget(
 }
 
 export async function analyzeOptimization(
-  options?: { platforms?: string[] },
+  options?: { platforms?: string[]; groupId?: string },
 ): Promise<OptimizationAnalysisResult> {
   const params = new URLSearchParams()
   appendPlatformFilters(params, options?.platforms)
+  if (options?.groupId?.trim()) params.set('groupId', options.groupId.trim())
   const qs = params.toString()
   return request<OptimizationAnalysisResult>(`${BASE}/optimize${qs ? `?${qs}` : ''}`)
 }

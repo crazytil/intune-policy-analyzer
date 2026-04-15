@@ -38,9 +38,11 @@ export interface OptimizationPolicyPreview {
   policyType: string
   platform: string | null
   settingCount: number
+  affectedSettings: string[]
 }
 
 export interface OptimizationFinding {
+  findingId: string
   recommendationType: 'consolidationCandidate' | 'fragmentationHotspot'
   title: string
   summary: string

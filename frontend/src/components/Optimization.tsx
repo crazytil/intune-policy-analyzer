@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { analyzeOptimization } from '../services/api'
-import type { OptimizationAnalysisResult } from '../types'
+import type { Group, OptimizationAnalysisResult } from '../types'
 import { POLICY_TYPES } from '../types'
 
 interface OptimizationProps {
   isReady: boolean
+  groups: Group[]
 }
 
 function Spinner({ className = 'h-5 w-5' }: { className?: string }) {
@@ -41,13 +42,25 @@ function policyTypeLabel(policyType: string): string {
   return info ? `${info.icon} ${info.label}` : policyType
 }
 
-export default function Optimization({ isReady }: OptimizationProps) {
+function findingKey(finding: OptimizationAnalysisResult['findings'][number]): string {
+  return (
+    finding.findingId ??
+    `${finding.recommendationType}:${finding.domain}:${finding.audience}:${finding.platforms.join(',')}:${finding.policies
+      .map((policy) => policy.policyId)
+      .sort()
+      .join(',')}`
+  )
+}
+
+export default function Optimization({ isReady, groups }: OptimizationProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<OptimizationAnalysisResult | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([])
   const [selectedDomain, setSelectedDomain] = useState('all')
+  const [selectedGroupId, setSelectedGroupId] = useState('')
+  const [groupFilter, setGroupFilter] = useState('')
 
   useEffect(() => {
     if (!isReady) return
@@ -60,6 +73,7 @@ export default function Optimization({ isReady }: OptimizationProps) {
       try {
         const next = await analyzeOptimization({
           platforms: selectedPlatforms.map((platform) => platform.toLowerCase()),
+          groupId: selectedGroupId || undefined,
         })
         if (!cancelled) setResult(next)
       } catch (nextError) {
@@ -75,10 +89,14 @@ export default function Optimization({ isReady }: OptimizationProps) {
     return () => {
       cancelled = true
     }
-  }, [isReady, selectedPlatforms])
+  }, [isReady, selectedPlatforms, selectedGroupId])
 
   const domains = result?.summary.domains ?? []
   const platformOptions = result?.summary.platforms ?? []
+  const selectedGroupName = groups.find((group) => group.id === selectedGroupId)?.displayName ?? ''
+  const filteredGroups = groupFilter.trim()
+    ? groups.filter((group) => group.displayName.toLowerCase().includes(groupFilter.toLowerCase()))
+    : groups
 
   const visibleFindings = useMemo(() => {
     const findings = result?.findings ?? []
@@ -135,6 +153,49 @@ export default function Optimization({ isReady }: OptimizationProps) {
         </div>
 
         <div className="space-y-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-2">Group</p>
+            <div className="space-y-2 max-w-md">
+              <input
+                type="text"
+                value={groupFilter}
+                onChange={(event) => setGroupFilter(event.target.value)}
+                placeholder="Filter groups…"
+                className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
+              />
+              <div className="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-700/50">
+                {(!groupFilter.trim() || 'all groups'.includes(groupFilter.toLowerCase())) && (
+                  <button
+                    onClick={() => setSelectedGroupId('')}
+                    className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                      selectedGroupId === ''
+                        ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
+                        : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
+                    }`}
+                  >
+                    All groups
+                  </button>
+                )}
+                {filteredGroups.slice(0, 50).map((group) => (
+                  <button
+                    key={group.id}
+                    onClick={() => setSelectedGroupId(group.id)}
+                    className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                      selectedGroupId === group.id
+                        ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
+                        : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
+                    }`}
+                  >
+                    {group.displayName}
+                  </button>
+                ))}
+                {filteredGroups.length === 0 && groupFilter.trim() && !'all groups'.includes(groupFilter.toLowerCase()) && (
+                  <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">No groups match</p>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-2">Platforms</p>
             <div className="flex flex-wrap gap-2">
@@ -197,7 +258,7 @@ export default function Optimization({ isReady }: OptimizationProps) {
       )}
 
       {!loading && !error && visibleFindings.map((finding) => {
-        const key = `${finding.recommendationType}:${finding.domain}:${finding.audience}:${finding.platforms.join(',')}`
+        const key = findingKey(finding)
         const isExpanded = expanded.has(key)
         return (
           <div key={key} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -217,7 +278,9 @@ export default function Optimization({ isReady }: OptimizationProps) {
                   </div>
                   <h3 className="text-lg font-semibold">{finding.title}</h3>
                   <p className="text-sm text-gray-500 dark:text-gray-400">{finding.summary}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{finding.audience}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {selectedGroupName || finding.audience}
+                  </p>
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm min-w-[16rem]">
                   <div className="rounded-lg bg-gray-50 dark:bg-gray-900 px-3 py-2">

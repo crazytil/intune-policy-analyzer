@@ -21,6 +21,7 @@ interface DataCache<T> {
 }
 
 const CACHE_MAX_AGE_MS = 30 * 60 * 1000 // 30 minutes
+const CACHE_BACKGROUND_REFRESH_AGE_MS = 5 * 60 * 1000 // 5 minutes
 
 function getStorageCandidates(): Storage[] {
   if (typeof window === 'undefined') return []
@@ -210,13 +211,16 @@ export default function App() {
       const cachedPolicies = loadCache<Policy[]>(POLICY_CACHE_KEY, auth.tenantId, auth.userName)
       const cachedGroups = loadCache<Group[]>(GROUP_CACHE_KEY, auth.tenantId, auth.userName)
       if (cachedPolicies && cachedPolicies.data.length > 0 && cachedGroups && cachedGroups.data.length > 0) {
+        const cacheTimestamp = Math.min(cachedPolicies.timestamp, cachedGroups.timestamp)
         commitLoadedData(
           cachedPolicies.data,
           cachedGroups.data,
-          Math.min(cachedPolicies.timestamp, cachedGroups.timestamp),
+          cacheTimestamp,
           true,
         )
-        void queueBackgroundRefresh()
+        if (Date.now() - cacheTimestamp > CACHE_BACKGROUND_REFRESH_AGE_MS) {
+          void queueBackgroundRefresh()
+        }
         return
       }
     }
@@ -428,7 +432,7 @@ export default function App() {
               <ConflictAnalyzer policies={policies} groups={groups} />
             )}
             {activeTab === 'optimization' && (
-              <Optimization isReady={dataLoaded} />
+              <Optimization isReady={dataLoaded} groups={groups} />
             )}
           </main>
         </>

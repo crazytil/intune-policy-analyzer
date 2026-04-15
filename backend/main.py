@@ -412,6 +412,7 @@ async def analyze_conflicts_for_policy_route(
 @app.get("/api/optimize", response_model=OptimizationAnalysisResult, response_model_by_alias=True)
 async def analyze_optimization_route(
     platform: Optional[list[str]] = Query(None),
+    group_id: Optional[str] = Query(None, alias="groupId"),
 ) -> OptimizationAnalysisResult:
     """Analyze read-only policy consolidation and fragmentation opportunities."""
     try:
@@ -425,6 +426,7 @@ async def analyze_optimization_route(
         return analyze_optimization_opportunities(
             all_policies,
             selected_platforms=_normalize_platform_filters(platform),
+            selected_group_id=group_id.strip() if group_id and group_id.strip() else None,
             group_name_by_id=group_name_by_id,
         )
     except RuntimeError as e:

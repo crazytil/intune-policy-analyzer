@@ -133,6 +133,20 @@ def _audience_targets(
     return targets
 
 
+def _filter_clusters_by_group_audience(
+    clusters: dict[tuple[str, str, str, str], dict[str, Any]],
+    selected_group_id: Optional[str],
+) -> dict[tuple[str, str, str, str], dict[str, Any]]:
+    if not selected_group_id:
+        return clusters
+    expected_audience_key = f"group:{selected_group_id}"
+    return {
+        cluster_key: cluster
+        for cluster_key, cluster in clusters.items()
+        if cluster_key[1] == expected_audience_key
+    }
+
+
 def _score_cluster(
     *,
     policy_count: int,
@@ -154,7 +168,22 @@ def _make_policy_preview(policy: Policy, settings: list[dict[str, Any]]) -> Opti
         policy_type=policy.policy_type.value,
         platform=next(iter(_platform_labels(_platform_bucket_key(policy))), policy.platform),
         setting_count=len(settings),
+        affected_settings=sorted({
+            entry.get("display_name") or entry["setting_key"]
+            for entry in settings
+        }),
     )
+
+
+def _finding_id(
+    recommendation_type: OptimizationRecommendationType,
+    domain: str,
+    audience: str,
+    platform_key: str,
+    policies: list[Policy],
+) -> str:
+    policy_signature = ",".join(sorted(policy.id for policy in policies))
+    return "|".join((recommendation_type.value, domain, audience, platform_key, policy_signature))
 
 
 def _make_finding(
@@ -204,6 +233,7 @@ def _make_finding(
     )
 
     return OptimizationFindingV1(
+        finding_id=_finding_id(recommendation_type, domain, audience, platform_key, policies),
         recommendation_type=recommendation_type,
         title=title,
         summary=summary,
@@ -268,10 +298,12 @@ def _iter_domain_clusters(
 def analyze_optimization_opportunities(
     policies: list[Policy],
     selected_platforms: Optional[set[str]] = None,
+    selected_group_id: Optional[str] = None,
     group_name_by_id: Optional[dict[str, str]] = None,
 ) -> OptimizationAnalysisResult:
     filtered_policies = _filter_policies_by_platforms(policies, selected_platforms)
     clusters = _iter_domain_clusters(filtered_policies, group_name_by_id)
+    clusters = _filter_clusters_by_group_audience(clusters, selected_group_id)
     findings: list[OptimizationFindingV1] = []
 
     for (domain, _audience_key, platform_key, _policy_type), cluster in clusters.items():

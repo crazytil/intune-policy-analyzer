@@ -89,6 +89,7 @@ class OptimizationEngineTests(unittest.TestCase):
         self.assertEqual(finding.shared_setting_count, 1)
         self.assertEqual(finding.conflict_count, 0)
         self.assertEqual(sorted(policy.policy_id for policy in finding.policies), ["edge-1", "edge-2"])
+        self.assertIn("edgeBlocked", finding.policies[0].affected_settings)
 
     def test_emits_fragmentation_hotspot_for_split_domain_cluster(self) -> None:
         policies = [
@@ -204,6 +205,87 @@ class OptimizationEngineTests(unittest.TestCase):
         self.assertEqual(result.summary.total_findings, 1)
         self.assertTrue(all(platform == "Windows" for platform in result.findings[0].platforms))
 
+    def test_applies_group_filter(self) -> None:
+        policies = [
+            Policy(
+                id="edge-1",
+                display_name="Edge One",
+                policy_type=PolicyType.DEVICE_CONFIGURATION,
+                platform="windows",
+                assignments=[_assignment("group-1")],
+                raw={"edgeBlocked": False, "edgeBlockPopups": True},
+            ),
+            Policy(
+                id="edge-2",
+                display_name="Edge Two",
+                policy_type=PolicyType.DEVICE_CONFIGURATION,
+                platform="windows",
+                assignments=[_assignment("group-1")],
+                raw={"edgeBlocked": False, "edgeCookiePolicy": "block_third_party"},
+            ),
+            Policy(
+                id="defender-1",
+                display_name="Defender One",
+                policy_type=PolicyType.DEVICE_CONFIGURATION,
+                platform="windows",
+                assignments=[_assignment("group-2")],
+                raw={"defenderEnabled": True},
+            ),
+            Policy(
+                id="defender-2",
+                display_name="Defender Two",
+                policy_type=PolicyType.DEVICE_CONFIGURATION,
+                platform="windows",
+                assignments=[_assignment("group-2")],
+                raw={"defenderEnabled": True, "defenderCloudBlockLevel": "high"},
+            ),
+        ]
+
+        result = analyze_optimization_opportunities(
+            policies,
+            selected_group_id="group-1",
+            group_name_by_id={"group-1": "Windows Pilot Devices", "group-2": "Defender Devices"},
+        )
+
+        self.assertEqual(result.summary.total_findings, 1)
+        self.assertEqual(result.findings[0].audience, "Windows Pilot Devices")
+        self.assertEqual(sorted(policy.policy_id for policy in result.findings[0].policies), ["edge-1", "edge-2"])
+
+    def test_group_filter_limits_results_to_selected_group_audience(self) -> None:
+        policies = [
+            Policy(
+                id="edge-1",
+                display_name="Edge One",
+                policy_type=PolicyType.DEVICE_CONFIGURATION,
+                platform="windows",
+                assignments=[
+                    _assignment("group-1"),
+                    {"target": {"@odata.type": "#microsoft.graph.allLicensedUsersAssignmentTarget"}},
+                ],
+                raw={"edgeBlocked": False, "edgeBlockPopups": True},
+            ),
+            Policy(
+                id="edge-2",
+                display_name="Edge Two",
+                policy_type=PolicyType.DEVICE_CONFIGURATION,
+                platform="windows",
+                assignments=[
+                    _assignment("group-1"),
+                    {"target": {"@odata.type": "#microsoft.graph.allLicensedUsersAssignmentTarget"}},
+                ],
+                raw={"edgeBlocked": False, "edgeCookiePolicy": "block_third_party"},
+            ),
+        ]
+
+        result = analyze_optimization_opportunities(
+            policies,
+            selected_group_id="group-1",
+            group_name_by_id={"group-1": "Windows Pilot Devices"},
+        )
+
+        self.assertEqual(result.summary.total_findings, 1)
+        self.assertEqual([finding.audience for finding in result.findings], ["Windows Pilot Devices"])
+
     def test_does_not_cluster_across_different_policy_types(self) -> None:
         policies = [
             Policy(
@@ -251,6 +333,112 @@ class OptimizationEngineTests(unittest.TestCase):
         result = analyze_optimization_opportunities(policies)
 
         self.assertEqual(result.summary.total_findings, 0)
+
+    def test_emits_distinct_finding_ids_for_same_visible_cluster_metadata(self) -> None:
+        policies = [
+            Policy(
+                id="dc-edge-1",
+                display_name="Device Config Edge One",
+                policy_type=PolicyType.DEVICE_CONFIGURATION,
+                platform="windows",
+                assignments=[_assignment("group-1")],
+                raw={"edgeCookiePolicy": "block_third_party", "edgeBlockPopups": True},
+            ),
+            Policy(
+                id="dc-edge-2",
+                display_name="Device Config Edge Two",
+                policy_type=PolicyType.DEVICE_CONFIGURATION,
+                platform="windows",
+                assignments=[_assignment("group-1")],
+                raw={"edgeCookiePolicy": "block_third_party", "edgeSendDoNotTrackHeader": True},
+            ),
+            Policy(
+                id="catalog-edge-1",
+                display_name="Settings Catalog Edge One",
+                policy_type=PolicyType.SETTINGS_CATALOG,
+                platform="windows",
+                assignments=[_assignment("group-1")],
+                settings=[
+                    {
+                        "settingInstance": {
+                            "@odata.type": "#microsoft.graph.deviceManagementConfigurationChoiceSettingInstance",
+                            "settingDefinitionId": "microsoft_edge~policy~microsoft_edge~ContentSettings,DefaultCookiesSetting",
+                            "choiceSettingValue": {"value": "microsoft.graph.deviceManagementConfigurationChoiceSettingValue_1"},
+                        },
+                        "settingDefinitions": [
+                            {
+                                "id": "microsoft_edge~policy~microsoft_edge~ContentSettings",
+                                "displayName": "Default cookies setting",
+                                "baseUri": "./Device/Vendor/MSFT/Policy/Config/MicrosoftEdge/ContentSettings",
+                                "offsetUri": "DefaultCookiesSetting",
+                            }
+                        ],
+                    },
+                    {
+                        "settingInstance": {
+                            "@odata.type": "#microsoft.graph.deviceManagementConfigurationChoiceSettingInstance",
+                            "settingDefinitionId": "microsoft_edge~policy~microsoft_edge~Startup,RestoreOnStartup",
+                            "choiceSettingValue": {"value": "microsoft.graph.deviceManagementConfigurationChoiceSettingValue_1"},
+                        },
+                        "settingDefinitions": [
+                            {
+                                "id": "microsoft_edge~policy~microsoft_edge~Startup",
+                                "displayName": "Restore on startup",
+                                "baseUri": "./Device/Vendor/MSFT/Policy/Config/MicrosoftEdge/Startup",
+                                "offsetUri": "RestoreOnStartup",
+                            }
+                        ],
+                    }
+                ],
+            ),
+            Policy(
+                id="catalog-edge-2",
+                display_name="Settings Catalog Edge Two",
+                policy_type=PolicyType.SETTINGS_CATALOG,
+                platform="windows",
+                assignments=[_assignment("group-1")],
+                settings=[
+                    {
+                        "settingInstance": {
+                            "@odata.type": "#microsoft.graph.deviceManagementConfigurationChoiceSettingInstance",
+                            "settingDefinitionId": "microsoft_edge~policy~microsoft_edge~ContentSettings,DefaultCookiesSetting",
+                            "choiceSettingValue": {"value": "microsoft.graph.deviceManagementConfigurationChoiceSettingValue_1"},
+                        },
+                        "settingDefinitions": [
+                            {
+                                "id": "microsoft_edge~policy~microsoft_edge~ContentSettings",
+                                "displayName": "Default cookies setting",
+                                "baseUri": "./Device/Vendor/MSFT/Policy/Config/MicrosoftEdge/ContentSettings",
+                                "offsetUri": "DefaultCookiesSetting",
+                            }
+                        ],
+                    },
+                    {
+                        "settingInstance": {
+                            "@odata.type": "#microsoft.graph.deviceManagementConfigurationChoiceSettingInstance",
+                            "settingDefinitionId": "microsoft_edge~policy~microsoft_edge~Startup,HomepageLocation",
+                            "choiceSettingValue": {"value": "microsoft.graph.deviceManagementConfigurationChoiceSettingValue_1"},
+                        },
+                        "settingDefinitions": [
+                            {
+                                "id": "microsoft_edge~policy~microsoft_edge~Startup",
+                                "displayName": "Homepage location",
+                                "baseUri": "./Device/Vendor/MSFT/Policy/Config/MicrosoftEdge/Startup",
+                                "offsetUri": "HomepageLocation",
+                            }
+                        ],
+                    }
+                ],
+            ),
+        ]
+
+        result = analyze_optimization_opportunities(
+            policies,
+            group_name_by_id={"group-1": "Windows Pilot Devices"},
+        )
+
+        self.assertEqual(result.summary.total_findings, 2)
+        self.assertEqual(len({finding.finding_id for finding in result.findings}), 2)
 
     def test_falls_back_to_group_id_when_name_is_unavailable(self) -> None:
         policies = [
