@@ -4,6 +4,7 @@ import { getAuthStatus, login, logout, fetchPolicies, fetchAllGroups } from './s
 import Dashboard from './components/Dashboard'
 import GroupExplorer from './components/GroupExplorer'
 import ConflictAnalyzer from './components/ConflictAnalyzer'
+import Optimization from './components/Optimization'
 
 type Tab = 'dashboard' | 'groupExplorer' | 'conflicts' | 'optimization'
 
@@ -20,6 +21,7 @@ interface DataCache<T> {
 }
 
 const CACHE_MAX_AGE_MS = 30 * 60 * 1000 // 30 minutes
+const CACHE_BACKGROUND_REFRESH_AGE_MS = 5 * 60 * 1000 // 5 minutes
 
 function getStorageCandidates(): Storage[] {
   if (typeof window === 'undefined') return []
@@ -209,13 +211,16 @@ export default function App() {
       const cachedPolicies = loadCache<Policy[]>(POLICY_CACHE_KEY, auth.tenantId, auth.userName)
       const cachedGroups = loadCache<Group[]>(GROUP_CACHE_KEY, auth.tenantId, auth.userName)
       if (cachedPolicies && cachedPolicies.data.length > 0 && cachedGroups && cachedGroups.data.length > 0) {
+        const cacheTimestamp = Math.min(cachedPolicies.timestamp, cachedGroups.timestamp)
         commitLoadedData(
           cachedPolicies.data,
           cachedGroups.data,
-          Math.min(cachedPolicies.timestamp, cachedGroups.timestamp),
+          cacheTimestamp,
           true,
         )
-        void queueBackgroundRefresh()
+        if (Date.now() - cacheTimestamp > CACHE_BACKGROUND_REFRESH_AGE_MS) {
+          void queueBackgroundRefresh()
+        }
         return
       }
     }
@@ -263,7 +268,7 @@ export default function App() {
     { key: 'dashboard', label: 'Dashboard', disabled: false },
     { key: 'groupExplorer', label: 'Group Explorer', disabled: false },
     { key: 'conflicts', label: 'Conflict Analyser', disabled: false },
-    { key: 'optimization', label: 'Optimisation', disabled: true },
+    { key: 'optimization', label: 'Optimisation', disabled: false },
   ]
 
   const dataLoaded = policies.length > 0
@@ -425,6 +430,9 @@ export default function App() {
             )}
             {activeTab === 'conflicts' && (
               <ConflictAnalyzer policies={policies} groups={groups} />
+            )}
+            {activeTab === 'optimization' && (
+              <Optimization isReady={dataLoaded} groups={groups} policies={policies} />
             )}
           </main>
         </>

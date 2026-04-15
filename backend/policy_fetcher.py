@@ -228,29 +228,83 @@ async def _fetch_policy_type(
         logger.error("Failed to fetch %s: %s", policy_type.value, e)
         return []
 
+    assignments_by_policy: dict[str, list[dict[str, Any]]] = {}
+    settings_by_policy: dict[str, list[dict[str, Any]]] = {}
+
+    if raw_policies:
+        assignment_endpoints: list[str] = []
+        settings_endpoints: list[str] = []
+        settings_params_by_endpoint: dict[str, dict[str, str]] = {}
+
+        if hasattr(client, "batch_get"):
+            for raw in raw_policies:
+                policy_id = raw.get("id", "")
+                if not policy_id:
+                    continue
+                if config["has_assignments"]:
+                    assignment_endpoints.append(f"{endpoint}/{policy_id}/assignments")
+                if config["settings_endpoint"] and policy_type != PolicyType.ENDPOINT_SECURITY:
+                    settings_endpoint = f"{endpoint}/{policy_id}/{config['settings_endpoint']}"
+                    settings_endpoints.append(settings_endpoint)
+                    if policy_type in (PolicyType.SETTINGS_CATALOG, PolicyType.COMPLIANCE_V2):
+                        settings_params_by_endpoint[settings_endpoint] = {"$expand": "settingDefinitions"}
+
+            if assignment_endpoints:
+                try:
+                    batched_assignments = await client.batch_get(assignment_endpoints)
+                    for batch_endpoint, batch_result in batched_assignments.items():
+                        policy_id = batch_endpoint.split("/")[-2]
+                        assignments_by_policy[policy_id] = batch_result
+                except Exception as e:
+                    logger.warning("Failed to batch fetch assignments for %s: %s", policy_type.value, e)
+
+            if settings_endpoints:
+                try:
+                    batched_settings = await client.batch_get(
+                        settings_endpoints,
+                        params_by_endpoint=settings_params_by_endpoint,
+                    )
+                    for batch_endpoint, batch_result in batched_settings.items():
+                        policy_id = batch_endpoint.split("/")[-2]
+                        settings_by_policy[policy_id] = batch_result
+                except Exception as e:
+                    logger.warning("Failed to batch fetch settings for %s: %s", policy_type.value, e)
+
     async def fetch_policy_details(raw: dict[str, Any]) -> Policy:
         policy_id = raw.get("id", "")
 
         # Fetch assignments
-        if config["has_assignments"]:
+        if config["has_assignments"] and policy_id in assignments_by_policy:
+            assignments_task = None
+            assignments = assignments_by_policy[policy_id]
+        elif config["has_assignments"]:
             assignments_task = _fetch_assignments(client, endpoint, policy_id)
+            assignments = None
         else:
             # Conditional Access — extract from inline conditions
             assignments_task = None
+            assignments = _extract_conditional_access_assignments(raw)
 
         # Fetch additional settings if needed
         settings_task = None
-        if config["settings_endpoint"]:
+        if config["settings_endpoint"] and policy_type != PolicyType.ENDPOINT_SECURITY and policy_id in settings_by_policy:
+            extra_settings = settings_by_policy[policy_id]
+        elif config["settings_endpoint"]:
             settings_task = _fetch_settings(
                 client, endpoint, policy_id, policy_type, config["settings_endpoint"]
             )
+            extra_settings = None
+        else:
+            extra_settings = []
 
-        assignments = (
-            await assignments_task
-            if assignments_task is not None
-            else _extract_conditional_access_assignments(raw)
-        )
-        extra_settings = await settings_task if settings_task is not None else []
+        if assignments is None:
+            assignments = (
+                await assignments_task
+                if assignments_task is not None
+                else _extract_conditional_access_assignments(raw)
+            )
+        if extra_settings is None:
+            extra_settings = await settings_task if settings_task is not None else []
 
         return _build_policy(raw, policy_type, assignments, extra_settings)
 

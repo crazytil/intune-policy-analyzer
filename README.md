@@ -6,8 +6,7 @@ A locally-run web application for analyzing Microsoft Intune policies. Find all 
 
 - **Group Explorer** — Select a group, see every policy assigned to it (including nested group inheritance and "All Users"/"All Devices"). Switch to reverse view: select a policy, see all target groups.
 - **Conflict Analyzer** — Detect settings configured differently across policies targeting the same group. Red = conflict (different values), amber = duplicate (same value, multiple places).
-- **Policy Optimization** — Find orphaned policies (empty/deleted groups), unused policies (no assignments), overly broad assignments, consolidation candidates, and redundant assignments.
-- **Export** — CSV, HTML, and PDF reports for audit and governance.
+- **Optimisation Engine (V1)** — Highlight read-only consolidation candidates and fragmentation hotspots within the same policy family, audience, platform, and setting domain.
 
 ## How It Works
 
@@ -86,7 +85,7 @@ cd frontend && npm run dev
 
 ### 5. Open the app
 
-Navigate to `http://localhost:5173`. Click "Login" — a browser popup will authenticate you via Microsoft. Once logged in, click "Load Policies" to begin.
+Navigate to `http://localhost:5173`. Click "Sign in with Microsoft" and the browser login flow will authenticate you. Once signed in, the app loads policies and groups automatically.
 
 ## Required Permissions (Delegated)
 
