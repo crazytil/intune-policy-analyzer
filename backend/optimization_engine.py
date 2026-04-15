@@ -20,66 +20,384 @@ from models import (
 )
 
 
-_DOMAIN_RULES: tuple[tuple[str, str], ...] = (
-    ("attacksurfacereduction", "Defender ASR"),
-    ("exploitguard", "Defender / Exploit Guard"),
-    ("smartscreen", "SmartScreen"),
-    ("defender", "Defender"),
-    ("microsoft defender", "Defender"),
-    ("edge", "Edge"),
-    ("browser", "Browser"),
-    ("internet explorer", "Browser"),
+# ── CSP area → logical domain mapping ────────────────────────────────────────
+#
+# This maps the official Microsoft Policy CSP area names (from the URI path
+# ./Device/Vendor/MSFT/Policy/Config/{Area}/...) to logical groupings.
+# Source: https://learn.microsoft.com/windows/client-management/mdm/policy-configuration-service-provider
+#
+# Only areas that share a clear functional domain are merged; everything else
+# keeps its own domain name to avoid false groupings.
+
+_CSP_AREA_TO_DOMAIN: dict[str, str] = {
+    # ── Defender / Endpoint Security ─────────────────────────────────────
+    "defender": "Defender",
+    "admx_microsoftdefenderantivirus": "Defender",
+    "windowsdefendersecuritycenter": "Defender Security Center",
+    "webthreatdefense": "Web Threat Defense",
+    "exploitguard": "Exploit Guard",
+    "attacksurfacereduction": "Attack Surface Reduction",
+    # ── SmartScreen ──────────────────────────────────────────────────────
+    "smartscreen": "SmartScreen",
+    # ── Firewall ─────────────────────────────────────────────────────────
+    "firewall": "Firewall",
+    # ── BitLocker / Encryption ───────────────────────────────────────────
+    "bitlocker": "BitLocker",
+    "dataprotection": "Data Protection",
+    # ── Windows Update ───────────────────────────────────────────────────
+    "update": "Windows Update",
+    "deliveryoptimization": "Windows Update",
+    "admx_servicing": "Windows Update",
+    # ── Device Security / Hardware ───────────────────────────────────────
+    "deviceguard": "Device Guard",
+    "virtualizationbasedtechnology": "Device Guard",
+    "dmaguard": "DMA Guard",
+    "secureboot": "Secure Boot",
+    "tpm": "TPM",
+    "admx_tpm": "TPM",
+    "lsa": "LSA Protection",
+    "admx_credentialproviders": "Credential Providers",
+    "admx_credssp": "Credential Providers",
+    "credentialproviders": "Credential Providers",
+    "credentialsdelegation": "Credential Providers",
+    "credentialsui": "Credential Providers",
+    "admx_credui": "Credential Providers",
+    # ── Identity & Authentication ────────────────────────────────────────
+    "authentication": "Authentication",
+    "devicelock": "Device Lock",
+    "admx_kerberos": "Kerberos",
+    "kerberos": "Kerberos",
+    "admx_sam": "Authentication",
+    "admx_logon": "Windows Logon",
+    "windowslogon": "Windows Logon",
+    "admx_ctrlaltdel": "Windows Logon",
+    "admx_winlogon": "Windows Logon",
+    "federatedauthentication": "Federated Authentication",
+    # ── Browser ──────────────────────────────────────────────────────────
+    "browser": "Edge (Legacy)",
+    "admx_microsoftedge": "Edge",
+    "microsoft_edge": "Edge",
+    "microsoftedge": "Edge",
+    "admx_internetexplorer": "Internet Explorer",
+    "internetexplorer": "Internet Explorer",
+    # ── Connectivity ─────────────────────────────────────────────────────
+    "wifi": "WiFi",
+    "admx_wlansvc": "WiFi",
+    "bluetooth": "Bluetooth",
+    "cellular": "Cellular",
+    "connectivity": "Connectivity",
+    "admx_networkconnections": "Network",
+    "networkisolation": "Network",
+    "networklistmanager": "Network",
+    "admx_dnsclient": "Network",
+    "admx_wcm": "Network",
+    "windowsconnectionmanager": "Network",
+    "admx_lanmanserver": "Network",
+    "admx_lanmanworkstation": "Network",
+    "lanmanserver": "Network",
+    "lanmanworkstation": "Network",
+    "admx_tcpip": "Network",
+    "admx_qos": "Network",
+    "eap": "Network",
+    "admx_iscsi": "Network",
+    "wirelessdisplay": "Wireless Display",
+    # ── Privacy & Telemetry ──────────────────────────────────────────────
+    "privacy": "Privacy",
+    "admx_datacollection": "Telemetry",
+    "tenantdefinedtelemetry": "Telemetry",
+    "devicehealthmonitoring": "Device Health Monitoring",
+    "admx_icm": "Internet Communication",
+    # ── Printing ─────────────────────────────────────────────────────────
+    "printers": "Printing",
+    "admx_printing": "Printing",
+    "admx_printing2": "Printing",
+    "enterprisecloudprint": "Printing",
+    # ── Start Menu / Taskbar / Shell ─────────────────────────────────────
+    "start": "Start Menu",
+    "admx_startmenu": "Start Menu",
+    "admx_taskbar": "Taskbar",
+    "newsandinterests": "Taskbar",
+    "stickers": "Start Menu",
+    # ── Search ───────────────────────────────────────────────────────────
+    "search": "Search",
+    # ── Experience / UI ──────────────────────────────────────────────────
+    "experience": "User Experience",
+    "admx_desktop": "Desktop",
+    "desktop": "Desktop",
+    "display": "Display",
+    "admx_controlpanel": "Control Panel",
+    "admx_controlpaneldisplay": "Control Panel",
+    "admx_cpls": "Control Panel",
+    "settings": "Settings",
+    "admx_globalization": "Globalization",
+    "admx_windowsexplorer": "File Explorer",
+    "admx_explorer": "File Explorer",
+    "admx_framepanes": "File Explorer",
+    "admx_shellcommandpromptregedittools": "Shell & Command Prompt",
+    "textinput": "Text Input",
+    "admx_tabletpcinputpanel": "Text Input",
+    "admx_tabletshell": "Text Input",
+    "handwriting": "Text Input",
+    "timelanguagesettings": "Time & Language",
+    "notifications": "Notifications",
+    "admx_wpn": "Notifications",
+    "multitasking": "Multitasking",
+    "abovelock": "Lock Screen",
+    "personalization": "Personalization",
+    # ── Storage / USB ────────────────────────────────────────────────────
+    "storage": "Storage",
+    "admx_removablestorage": "Removable Storage",
+    "admx_enhancedstorage": "Storage",
+    "deviceinstallation": "Device Installation",
+    "admx_deviceinstallation": "Device Installation",
+    # ── Apps / Store ─────────────────────────────────────────────────────
+    "applicationmanagement": "Application Management",
+    "admx_windowsstore": "Microsoft Store",
+    "admx_appxpackagemanager": "Application Management",
+    "admx_appxruntime": "Application Management",
+    "appruntime": "Application Management",
+    "desktopappinstaller": "Application Management",
+    "admx_programs": "Application Management",
+    "appdeviceinventory": "Application Management",
+    # ── Remote Desktop ───────────────────────────────────────────────────
+    "remotedesktop": "Remote Desktop",
+    "admx_terminalserver": "Remote Desktop",
+    "remotedesktopservices": "Remote Desktop",
+    "admx_remoteassistance": "Remote Assistance",
+    "remoteassistance": "Remote Assistance",
+    "remotemanagement": "Remote Management",
+    "admx_windowsremotemanagement": "Remote Management",
+    "remoteshell": "Remote Management",
+    # ── Power ────────────────────────────────────────────────────────────
+    "power": "Power",
+    "admx_power": "Power",
+    # ── Camera / Hardware restrictions ───────────────────────────────────
+    "camera": "Camera",
+    "admx_sensors": "Sensors",
+    # ── Kiosk ────────────────────────────────────────────────────────────
+    "kioskbrowser": "Kiosk",
+    "admx_kioskbrowser": "Kiosk",
+    "lockdown": "Kiosk",
+    # ── Education ────────────────────────────────────────────────────────
+    "education": "Education",
+    # ── Local Security / Audit ───────────────────────────────────────────
+    "localpoliciessecurityoptions": "Local Security Policy",
+    "audit": "Audit",
+    "admx_auditsettings": "Audit",
+    "userrights": "User Rights",
+    "localusersandgroups": "Local Users & Groups",
+    "admx_restrictedgroups": "Local Users & Groups",
+    "security": "Security",
+    "admx_securitycenter": "Security",
+    "admx_mssecurityguide": "Security",
+    "admx_msslegacy": "Security",
+    # ── System / Miscellaneous ───────────────────────────────────────────
+    "system": "System",
+    "admx_grouppolicy": "Group Policy",
+    "admx_errorreporting": "Error Reporting",
+    "errorreporting": "Error Reporting",
+    "admx_eventlog": "Event Log",
+    "admx_eventlogging": "Event Log",
+    "eventlogservice": "Event Log",
+    "admx_eventviewer": "Event Log",
+    "admx_bits": "BITS",
+    "bits": "BITS",
+    "admx_scripts": "Scripts",
+    "admx_msi": "Windows Installer",
+    "admx_mdt": "Deployment",
+    "windowsautopilot": "Autopilot",
+    "admx_smartcard": "Smart Card",
+    "speech": "Speech",
+    "maps": "Maps",
+    "admx_help": "Help",
+    "admx_helpandsupport": "Help",
+    "games": "Games",
+    "licensing": "Licensing",
+    "windowssandbox": "Windows Sandbox",
+    "windowspowershell": "PowerShell",
+    "admx_powershellexecutionpolicy": "PowerShell",
+    "windowsai": "Windows AI",
+    "windowsinkworkspace": "Windows Ink",
+    "sudo": "Sudo",
+    "mixedreality": "Mixed Reality",
+    "clouddesktop": "Cloud Desktop",
+    "messaging": "Messaging",
+    "humanpresence": "Human Presence",
+    "settingssync": "Settings Sync",
+    "admx_settingssync": "Settings Sync",
+    "cryptography": "Cryptography",
+    "admx_ciphersuiteorder": "Cryptography",
+    "admx_offlinefiles": "Offline Files",
+    "admx_folderredirection": "Folder Redirection",
+    "appvirtualization": "App Virtualization",
+    "admx_userexperiencevirtualization": "App Virtualization",
+    "tenantrestrictions": "Tenant Restrictions",
+    "troubleshooting": "Troubleshooting",
+    "admx_msdt": "Troubleshooting",
+    "taskmanager": "Task Manager",
+    "taskscheduler": "Task Scheduler",
+    "admx_sdiageng": "Troubleshooting",
+    "admx_sdiagschd": "Troubleshooting",
+    "memorydump": "Memory Dump",
+    "filesystem": "File System",
+    "admx_filesys": "File System",
+    "servicecontrolmanager": "Service Control Manager",
+    "systemservices": "System Services",
+    "datausage": "Data Usage",
+    "remoteprocedurecall": "RPC",
+    "admx_rpc": "RPC",
+    "admx_dcom": "DCOM",
+    "admx_attachmentmanager": "Attachment Manager",
+    "attachmentmanager": "Attachment Manager",
+    "admx_com": "COM",
+    "admx_dfs": "DFS",
+    "admx_activexinstallservice": "ActiveX",
+    "activexcontrols": "ActiveX",
+    "admx_snmp": "SNMP",
+    "admx_pca": "Program Compatibility",
+    "admx_appcompat": "Program Compatibility",
+    "admx_devicecompat": "Program Compatibility",
+    "admx_pushtoinstall": "Push to Install",
+    "admx_encryptfilesonmove": "EFS",
+    "admx_hotspotauth": "Hotspot Authentication",
+    "controlpolicyconflict": "Policy Conflict",
+    "admx_wdi": "Diagnostics",
+    "admx_performancediagnostics": "Diagnostics",
+    "admx_diskdiagnostic": "Diagnostics",
+    "admx_leakdiagnostic": "Diagnostics",
+    "admx_radar": "Diagnostics",
+    "admx_reliability": "Diagnostics",
+    "admx_kdc": "KDC",
+    "admx_nca": "Network Connectivity Assistant",
+    "admx_ncsi": "Network Connectivity Status",
+    "admx_w32time": "Windows Time",
+    "admx_wininit": "Windows Init",
+    "admx_winsrv": "Windows Services",
+    "admx_windowsconnectnow": "Network",
+    "admx_peertopeerecaching": "BranchCache",
+    "admx_sharing": "Sharing",
+    "admx_distributedlinktracking": "Distributed Link Tracking",
+    "admx_dwm": "Desktop Window Manager",
+    "admx_eaime": "IME",
+    "admx_wordwheel": "Search",
+    "admx_mmcsnapins": "MMC",
+    "admx_mmc": "MMC",
+    "admx_servermanager": "Server Manager",
+    "admx_fthsvc": "Fault Tolerant Heap",
+    "admx_windowscolorsystem": "Color Management",
+    "admx_disknvcache": "Disk Cache",
+    "admx_diskquota": "Disk Quota",
+    "admx_soundrec": "Sound",
+    "admx_linklayertopologydiscovery": "Network",
+    "admx_userprofiles": "User Profiles",
+    "admx_touchinput": "Touch Input",
+    "admx_windowsmediadrm": "Windows Media",
+    "admx_windowsmediaplayer": "Windows Media",
+    "admx_systemrestore": "System Restore",
+    "admx_srmfci": "File Classification",
+    "admx_fileservervssprovider": "File Server",
+    "admx_admpwd": "LAPS",
+    "admx_filerecovery": "File Recovery",
+    "admx_msifilerecovery": "File Recovery",
+    "admx_filerevocation": "File Revocation",
+    "admx_locationprovideradm": "Location",
+    "admx_devicesetup": "Device Setup",
+    "admx_externalboot": "External Boot",
+    "admx_msapolicy": "MSA Policy",
+    "admx_pentraining": "Pen Training",
+    "admx_mobilepcmobilitycenter": "Mobility Center",
+    "admx_mobilepcpresentationsettings": "Presentation Settings",
+    "admx_netlogon": "Netlogon",
+    "admx_msched": "Maintenance Scheduler",
+    "admx_windowsinkworkspace": "Windows Ink",
+    "admx_wincal": "Windows Calendar",
+    "admx_iis": "IIS",
+}
+
+# ── Office ADMX areas (from M365 Apps ADMX templates) ────────────────────────
+# Definition IDs for Office ADMX settings follow the pattern:
+#   {product}~policy~l_{productarea}...
+# e.g. "office16v2~policy~l_microsoftofficeword", "office16v2~policy~l_microsoftofficepowerpoint"
+# These are NOT Windows CSP areas — they come from the Office ADMX templates
+# ingested into the Settings Catalog.
+
+_OFFICE_ADMX_PRODUCT_DOMAINS: dict[str, str] = {
+    "l_microsoftofficeword": "Office — Word",
+    "l_microsoftofficeexcel": "Office — Excel",
+    "l_microsoftofficepowerpoint": "Office — PowerPoint",
+    "l_microsoftofficeoutlook": "Office — Outlook",
+    "l_microsoftofficeaccess": "Office — Access",
+    "l_microsoftofficeonenote": "Office — OneNote",
+    "l_microsoftofficepublisher": "Office — Publisher",
+    "l_microsoftofficevisio": "Office — Visio",
+    "l_microsoftofficeproject": "Office — Project",
+    "l_microsoftofficeinfopath": "Office — InfoPath",
+    "l_microsoftoffice": "Office — Common",
+    "l_microsoftlync": "Office — Teams/Lync",
+    "l_microsoftgroove": "Office — OneDrive for Business",
+    "l_microsoftonedriveforbusiness": "Office — OneDrive for Business",
+    "l_outlookmobile": "Office — Outlook Mobile",
+}
+
+# ── Legacy device configuration property prefix → domain ─────────────────────
+# For DeviceConfiguration policies (windows10GeneralConfiguration etc.), the
+# property names use camelCase prefixes that indicate the functional area.
+# These must be matched from longest to most specific first.
+
+_LEGACY_PROPERTY_PREFIX_RULES: tuple[tuple[str, str], ...] = (
+    ("defenderCloudBlockLevel", "Defender"),
+    ("defenderPotentiallyUnwantedAppAction", "Defender"),
+    ("defenderSubmitSamplesConsentType", "Defender"),
+    ("defenderRequireRealTimeMonitoring", "Defender"),
+    ("defenderScheduledScanTime", "Defender"),
+    ("defenderScanType", "Defender"),
+    ("defenderEnabled", "Defender"),
+    ("bitLocker", "BitLocker"),
     ("firewall", "Firewall"),
-    ("bitlocker", "BitLocker"),
-    ("windowsupdate", "Windows Update"),
-    ("windows update", "Windows Update"),
-    ("autopatch", "Windows Update"),
-    ("qualityupdate", "Windows Update"),
-    ("featureupdate", "Windows Update"),
-    ("deliveryoptimization", "Windows Update"),
-    ("credentialguard", "Credential Guard / Device Guard"),
-    ("deviceguard", "Credential Guard / Device Guard"),
-    ("lsa", "Credential Guard / Device Guard"),
-    ("password", "Identity & Password"),
-    ("signin", "Identity & Password"),
-    ("account", "Identity & Password"),
-    ("control panel", "Control Panel"),
-    ("settingspage", "Control Panel"),
-    ("personalization", "Personalization"),
-    ("wallpaper", "Personalization"),
-    ("lock screen", "Personalization"),
-    ("start", "Start Menu / Shell"),
-    ("taskbar", "Start Menu / Shell"),
-    ("shell", "Start Menu / Shell"),
-    ("experience", "Start Menu / Shell"),
-    ("search", "Search"),
-    ("privacy", "Privacy"),
-    ("diagnostic", "Privacy"),
-    ("telemetry", "Privacy"),
-    ("bluetooth", "Connectivity"),
-    ("wifi", "Connectivity"),
-    ("wi-fi", "Connectivity"),
-    ("wireless", "Connectivity"),
-    ("vpn", "Connectivity"),
-    ("cellular", "Connectivity"),
-    ("network", "Connectivity"),
-    ("onedrive", "OneDrive"),
-    ("remote desktop", "Remote Desktop"),
-    ("rdp", "Remote Desktop"),
-    ("printing", "Printing"),
-    ("printer", "Printing"),
-    ("storage", "Storage"),
-    ("usb", "Storage"),
-    ("removable", "Storage"),
-    ("camera", "Device Restrictions"),
-    ("screen capture", "Device Restrictions"),
-    ("nfc", "Device Restrictions"),
-    ("android", "Android Restrictions"),
-    ("kiosk", "Kiosk"),
-    ("appx", "Apps"),
-    ("microsoft store", "Apps"),
-    ("office", "Office"),
+    ("edge", "Edge"),
+    ("password", "Device Lock"),
+    ("storageRequire", "Data Protection"),
+    ("securityBlock", "Compliance"),
+    ("deviceThreatProtection", "Threat Protection"),
+    ("osMinimum", "OS Version"),
+    ("osMaximum", "OS Version"),
+    ("earlyLaunchAntiMalwareDriver", "Boot Security"),
+    ("secureBootEnabled", "Secure Boot"),
+    ("codeIntegrityEnabled", "Code Integrity"),
+    ("tpmRequired", "TPM"),
+    ("activeFirewallRequired", "Firewall"),
+    ("antiSpywareRequired", "Defender"),
+    ("antivirusRequired", "Defender"),
+    ("realTimeProtectionEnabled", "Defender"),
+    ("signatureOutOfDate", "Defender"),
+    ("rtpEnabled", "Defender"),
+    ("avEnabled", "Defender"),
+    ("windowsHealthMonitoring", "Device Health Monitoring"),
+    ("cameraBlocked", "Camera"),
+    ("cellularBlock", "Cellular"),
+    ("bluetoothBlocked", "Bluetooth"),
+    ("nfcBlocked", "NFC"),
+    ("wifiBlock", "WiFi"),
+    ("wifiBlocked", "WiFi"),
+    ("screenCaptureBlocked", "Screen Capture"),
+    ("diagnosticDataBlockSubmission", "Telemetry"),
+    ("locationServicesBlocked", "Privacy"),
+    ("appsBlock", "Application Management"),
+    ("experienceBlock", "User Experience"),
+    ("startBlock", "Start Menu"),
+    ("windowsSpotlight", "Lock Screen"),
+    ("windowsStore", "Microsoft Store"),
+    ("searchBlock", "Search"),
+    ("searchDisable", "Search"),
+    ("updateServiceUrl", "Windows Update"),
+    ("settingsBlock", "Settings"),
+    ("internetSharingBlocked", "Network"),
+    ("configurationProfileBlockChanges", "Compliance"),
+    ("compliantAppsList", "Compliance"),
 )
+
+# ── Conditional Access ───────────────────────────────────────────────────────
+_CA_DOMAIN = "Conditional Access"
 
 _PLATFORM_LABELS = {
     "windows": "Windows",
@@ -92,11 +410,154 @@ _PLATFORM_LABELS = {
 }
 
 
+def _extract_csp_area(path: str) -> str | None:
+    """Extract the CSP area name from a URI path or definition_id.
+
+    Settings Catalog keys look like:
+      settingsCatalog:./Device/Vendor/MSFT/Policy/Config/Defender/AllowArchiveScanning
+      settingsCatalog:./User/Vendor/MSFT/Policy/Config/MicrosoftEdge/Startup/HomepageLocation
+
+    The area is the segment after Config/ (position varies slightly).
+    """
+    segments = [s for s in path.replace("\\", "/").split("/") if s and s != "."]
+    # Find "Config" segment and take the next one as area
+    for i, seg in enumerate(segments):
+        if seg.lower() == "config" and i + 1 < len(segments):
+            return segments[i + 1]
+    return None
+
+
+def _extract_admx_domain_from_definition_id(definition_id: str) -> str | None:
+    """Extract domain from ADMX-style definition IDs.
+
+    Formats:
+      microsoft_edge~policy~microsoft_edge~ContentSettings,DefaultCookiesSetting
+        → area = "microsoft_edge"
+      office16v2~policy~l_microsoftofficeword~...
+        → area = "l_microsoftofficeword" → "Office — Word"
+      admx_microsoftdefenderantivirus~...
+        → area = "admx_microsoftdefenderantivirus" → via CSP lookup
+    """
+    if "~" not in definition_id:
+        return None
+
+    parts = definition_id.split("~")
+    # Format: {source}~policy~{area}~{category},...
+    # The area is typically parts[2]
+    if len(parts) >= 3:
+        area = parts[2].lower().strip()
+
+        # Check Office ADMX products first (most specific)
+        for marker, domain in _OFFICE_ADMX_PRODUCT_DOMAINS.items():
+            if area == marker:
+                return domain
+
+        # For Microsoft Edge, the area is "microsoft_edge"
+        if area in _CSP_AREA_TO_DOMAIN:
+            return _CSP_AREA_TO_DOMAIN[area]
+
+        # Try the source (parts[0]) for ADMX-backed Windows settings
+        source = parts[0].lower().strip()
+        if source in _CSP_AREA_TO_DOMAIN:
+            return _CSP_AREA_TO_DOMAIN[source]
+
+    return None
+
+
 def _classify_domain(setting_key: str, display_name: str) -> str:
-    haystack = f"{setting_key} {display_name}".lower()
-    for marker, domain in _DOMAIN_RULES:
-        if marker in haystack:
-            return domain
+    """Classify a setting into a functional domain using structured parsing.
+
+    The classification uses the actual setting key structure rather than
+    substring matching to avoid false groupings. Priority order:
+
+    1. CSP URI path extraction (most reliable for Settings Catalog)
+    2. ADMX definition ID parsing (for ADMX-backed policies)
+    3. Definition ID prefix matching (for underscore-delimited IDs)
+    4. Legacy property prefix matching (for Device Configuration)
+    5. Conditional Access detection
+    """
+    # Split the setting key into prefix:path
+    colon_idx = setting_key.find(":")
+    if colon_idx < 0:
+        return "Other"
+
+    prefix = setting_key[:colon_idx]
+    path = setting_key[colon_idx + 1:]
+
+    # ── Conditional Access ───────────────────────────────────────────────
+    if prefix == "conditionalAccess":
+        return _CA_DOMAIN
+
+    # ── Settings Catalog / Compliance V2 / Endpoint Security ─────────────
+    if prefix in ("settingsCatalog", "complianceV2", "endpointSecurity"):
+        # Try CSP URI path first (e.g., ./Device/Vendor/MSFT/Policy/Config/Defender/...)
+        csp_area = _extract_csp_area(path)
+        if csp_area:
+            area_lower = csp_area.lower()
+            if area_lower in _CSP_AREA_TO_DOMAIN:
+                return _CSP_AREA_TO_DOMAIN[area_lower]
+            # ADMX areas often appear as the CSP area (e.g., "ADMX_StartMenu")
+            admx_key = f"admx_{area_lower}"
+            if admx_key in _CSP_AREA_TO_DOMAIN:
+                return _CSP_AREA_TO_DOMAIN[admx_key]
+            # Return the CSP area name itself as the domain (title-cased)
+            return csp_area
+
+        # Try ADMX-style definition ID (contains ~)
+        admx_domain = _extract_admx_domain_from_definition_id(path)
+        if admx_domain:
+            return admx_domain
+
+        # Try underscore-delimited definition ID
+        # e.g., device_vendor_msft_policy_config_defender_allowarchivescanning
+        # or device_vendor_msft_defender_...
+        path_lower = path.lower()
+        underscore_parts = path_lower.split("_")
+
+        # Find "config" segment in underscore-delimited path
+        for i, part in enumerate(underscore_parts):
+            if part == "config" and i + 1 < len(underscore_parts):
+                area = underscore_parts[i + 1]
+                if area in _CSP_AREA_TO_DOMAIN:
+                    return _CSP_AREA_TO_DOMAIN[area]
+                return area.title()
+
+        # Check if it starts with a known CSP area pattern
+        # e.g., "device_vendor_msft_defender_..." → "defender"
+        for area, domain in _CSP_AREA_TO_DOMAIN.items():
+            if area in underscore_parts:
+                return domain
+
+        return "Other"
+
+    # ── Legacy Device Configuration ──────────────────────────────────────
+    if prefix in ("deviceConfiguration", "compliance"):
+        # path format: "windows10GeneralConfiguration|propertyName"
+        # or just "propertyName" for some types
+        pipe_idx = path.find("|")
+        prop = path[pipe_idx + 1:] if pipe_idx >= 0 else path
+
+        for prop_prefix, domain in _LEGACY_PROPERTY_PREFIX_RULES:
+            if prop.startswith(prop_prefix):
+                return domain
+
+        return "Other"
+
+    # ── Group Policy ADMX ────────────────────────────────────────────────
+    if prefix == "groupPolicyAdmx":
+        admx_domain = _extract_admx_domain_from_definition_id(path)
+        if admx_domain:
+            return admx_domain
+        return "Group Policy"
+
+    # ── App Protection / App Configuration / Autopilot ───────────────────
+    if prefix == "appProtection":
+        return "App Protection"
+    if prefix == "appConfiguration":
+        return "App Configuration"
+    if prefix == "autopilot":
+        return "Autopilot"
+
     return "Other"
 
 

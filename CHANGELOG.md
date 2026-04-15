@@ -12,3 +12,8 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Tightened optimisation clustering so recommendations stay within the same policy family, platform, audience, and domain.
 - Updated the README to reflect the current sign-in flow and the actual V1 optimisation scope.
+
+### Fixed
+- Rebuilt domain classification from scratch using Microsoft's official CSP area taxonomy instead of naive substring matching. Office, Device Guard, Core Isolation, firmware, and Outlook settings are now correctly classified into separate domains and will never be grouped together.
+- Office ADMX settings are split by product (Word, Excel, Outlook, etc.) instead of lumped into a single "Office" bucket.
+- Legacy device configuration properties use prefix-based matching against the actual property name rather than scanning display names for false-positive keywords.

@@ -20,31 +20,90 @@ def _assignment(group_id: str) -> dict[str, object]:
 
 
 class OptimizationEngineTests(unittest.TestCase):
-    def test_classifies_control_panel_domain_from_setting_label(self) -> None:
-        self.assertEqual(
-            _classify_domain(
-                "deviceConfiguration:windows10GeneralConfiguration|bluetoothBlocked",
-                "Control Panel Visibility",
-            ),
-            "Control Panel",
-        )
-
-    def test_classifies_connectivity_domain_from_setting_key(self) -> None:
+    def test_classifies_bluetooth_from_legacy_property(self) -> None:
         self.assertEqual(
             _classify_domain(
                 "deviceConfiguration:windows10GeneralConfiguration|bluetoothBlocked",
                 "Block Bluetooth",
             ),
-            "Connectivity",
+            "Bluetooth",
         )
 
-    def test_classifies_privacy_domain_from_setting_key(self) -> None:
+    def test_classifies_telemetry_from_legacy_property(self) -> None:
         self.assertEqual(
             _classify_domain(
                 "deviceConfiguration:windows10GeneralConfiguration|diagnosticDataBlockSubmission",
                 "Block Diagnostic Data Submission",
             ),
-            "Privacy",
+            "Telemetry",
+        )
+
+    def test_classifies_defender_from_csp_uri(self) -> None:
+        self.assertEqual(
+            _classify_domain(
+                "settingsCatalog:./Device/Vendor/MSFT/Policy/Config/Defender/AllowArchiveScanning",
+                "Allow Archive Scanning",
+            ),
+            "Defender",
+        )
+
+    def test_classifies_edge_from_admx_definition_id(self) -> None:
+        self.assertEqual(
+            _classify_domain(
+                "settingsCatalog:microsoft_edge~policy~microsoft_edge~ContentSettings,DefaultCookiesSetting",
+                "Default cookies setting",
+            ),
+            "Edge",
+        )
+
+    def test_classifies_office_word_from_admx_definition_id(self) -> None:
+        self.assertEqual(
+            _classify_domain(
+                "settingsCatalog:office16v2~policy~l_microsoftofficeword~l_wordoptions,L_DisableAutoRecover",
+                "Disable AutoRecover",
+            ),
+            "Office — Word",
+        )
+
+    def test_classifies_office_outlook_from_admx_definition_id(self) -> None:
+        self.assertEqual(
+            _classify_domain(
+                "settingsCatalog:office16v2~policy~l_microsoftofficeoutlook~l_outlooksecurity,L_EnableRPCEncryption",
+                "Enable RPC Encryption",
+            ),
+            "Office — Outlook",
+        )
+
+    def test_does_not_mix_office_with_device_guard(self) -> None:
+        """Office and Device Guard settings must never be grouped together."""
+        office_domain = _classify_domain(
+            "settingsCatalog:office16v2~policy~l_microsoftoffice~l_security,L_MacroRuntimeScanScope",
+            "Macro Runtime Scan Scope",
+        )
+        device_guard_domain = _classify_domain(
+            "settingsCatalog:./Device/Vendor/MSFT/Policy/Config/DeviceGuard/EnableVirtualizationBasedSecurity",
+            "Enable Virtualization Based Security",
+        )
+        self.assertNotEqual(office_domain, device_guard_domain)
+        self.assertEqual(office_domain, "Office — Common")
+        self.assertEqual(device_guard_domain, "Device Guard")
+
+    def test_classifies_from_underscore_definition_id(self) -> None:
+        self.assertEqual(
+            _classify_domain(
+                "settingsCatalog:device_vendor_msft_policy_config_defender_allowarchivescanning",
+                "Allow Archive Scanning",
+            ),
+            "Defender",
+        )
+
+    def test_conditional_access_classified_separately(self) -> None:
+        self.assertEqual(
+            _classify_domain(
+                "conditionalAccess:conditions.locations",
+                "Locations",
+            ),
+            "Conditional Access",
         )
 
     def test_emits_consolidation_candidate_for_same_domain_same_audience(self) -> None:
