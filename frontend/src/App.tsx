@@ -432,7 +432,7 @@ export default function App() {
               <ConflictAnalyzer policies={policies} groups={groups} />
             )}
             {activeTab === 'optimization' && (
-              <Optimization isReady={dataLoaded} groups={groups} />
+              <Optimization isReady={dataLoaded} groups={groups} policies={policies} />
             )}
           </main>
         </>

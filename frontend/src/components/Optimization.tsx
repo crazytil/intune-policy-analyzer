@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { analyzeOptimization } from '../services/api'
-import type { Group, OptimizationAnalysisResult } from '../types'
+import type { Group, OptimizationAnalysisResult, OptimizationPolicyPreview, Policy } from '../types'
 import { POLICY_TYPES } from '../types'
 
 interface OptimizationProps {
   isReady: boolean
   groups: Group[]
+  policies: Policy[]
 }
 
 function Spinner({ className = 'h-5 w-5' }: { className?: string }) {
@@ -42,6 +43,22 @@ function policyTypeLabel(policyType: string): string {
   return info ? `${info.icon} ${info.label}` : policyType
 }
 
+function SettingsView({ settings }: { settings: unknown }) {
+  if (
+    settings == null ||
+    (Array.isArray(settings) && settings.length === 0) ||
+    (typeof settings === 'object' && !Array.isArray(settings) && Object.keys(settings as Record<string, unknown>).length === 0)
+  ) {
+    return <p className="text-sm text-gray-400 dark:text-gray-500 italic">No settings data</p>
+  }
+
+  return (
+    <pre className="text-xs bg-gray-50 dark:bg-gray-900 rounded p-3 overflow-x-auto max-h-96 text-gray-700 dark:text-gray-300">
+      {JSON.stringify(settings, null, 2)}
+    </pre>
+  )
+}
+
 function findingKey(finding: OptimizationAnalysisResult['findings'][number]): string {
   return (
     finding.findingId ??
@@ -52,7 +69,7 @@ function findingKey(finding: OptimizationAnalysisResult['findings'][number]): st
   )
 }
 
-export default function Optimization({ isReady, groups }: OptimizationProps) {
+export default function Optimization({ isReady, groups, policies }: OptimizationProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<OptimizationAnalysisResult | null>(null)
@@ -61,6 +78,8 @@ export default function Optimization({ isReady, groups }: OptimizationProps) {
   const [selectedDomain, setSelectedDomain] = useState('all')
   const [selectedGroupId, setSelectedGroupId] = useState('')
   const [groupFilter, setGroupFilter] = useState('')
+  const [selectedPolicyPreview, setSelectedPolicyPreview] = useState<OptimizationPolicyPreview | null>(null)
+  const [policyDetailMode, setPolicyDetailMode] = useState<'affected' | 'all'>('affected')
 
   useEffect(() => {
     if (!isReady) return
@@ -97,6 +116,9 @@ export default function Optimization({ isReady, groups }: OptimizationProps) {
   const filteredGroups = groupFilter.trim()
     ? groups.filter((group) => group.displayName.toLowerCase().includes(groupFilter.toLowerCase()))
     : groups
+  const selectedPolicy = selectedPolicyPreview
+    ? policies.find((policy) => policy.id === selectedPolicyPreview.policyId) ?? null
+    : null
 
   const visibleFindings = useMemo(() => {
     const findings = result?.findings ?? []
@@ -117,6 +139,16 @@ export default function Optimization({ isReady, groups }: OptimizationProps) {
       next.has(key) ? next.delete(key) : next.add(key)
       return next
     })
+  }
+
+  const openPolicyDetails = (policy: OptimizationPolicyPreview) => {
+    setSelectedPolicyPreview(policy)
+    setPolicyDetailMode('affected')
+  }
+
+  const closePolicyDetails = () => {
+    setSelectedPolicyPreview(null)
+    setPolicyDetailMode('affected')
   }
 
   if (!isReady) {
@@ -347,7 +379,12 @@ export default function Optimization({ isReady, groups }: OptimizationProps) {
                   <h4 className="text-sm font-semibold mb-2">Policies in cluster</h4>
                   <div className="space-y-2">
                     {finding.policies.map((policy) => (
-                      <div key={policy.policyId} className="rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-3">
+                      <button
+                        key={policy.policyId}
+                        type="button"
+                        onClick={() => openPolicyDetails(policy)}
+                        className="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
+                      >
                         <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
                           <div>
                             <div className="font-medium">{policy.policyName}</div>
@@ -357,7 +394,7 @@ export default function Optimization({ isReady, groups }: OptimizationProps) {
                             {policy.platform ?? 'Unknown'} · {policy.settingCount} settings in domain
                           </div>
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -366,6 +403,85 @@ export default function Optimization({ isReady, groups }: OptimizationProps) {
           </div>
         )
       })}
+
+      {selectedPolicyPreview && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/50 px-4"
+          onClick={closePolicyDetails}
+        >
+          <div
+            className="w-full max-w-3xl rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-gray-200 dark:border-gray-700 px-6 py-5">
+              <div>
+                <h3 className="text-lg font-semibold">{selectedPolicyPreview.policyName}</h3>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  {policyTypeLabel(selectedPolicyPreview.policyType)} · {selectedPolicyPreview.platform ?? 'Unknown'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closePolicyDetails}
+                className="rounded-lg px-2 py-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700/50 dark:hover:text-gray-200"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4 px-6 py-5">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPolicyDetailMode('affected')}
+                  className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                    policyDetailMode === 'affected'
+                      ? 'bg-blue-600 text-white'
+                      : 'border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/40'
+                  }`}
+                >
+                  Affected settings
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPolicyDetailMode('all')}
+                  className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                    policyDetailMode === 'all'
+                      ? 'bg-blue-600 text-white'
+                      : 'border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/40'
+                  }`}
+                >
+                  View all settings
+                </button>
+              </div>
+
+              {policyDetailMode === 'affected' ? (
+                <div>
+                  <h4 className="text-sm font-semibold mb-3">Affected settings for this recommendation</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedPolicyPreview.affectedSettings.map((setting) => (
+                      <span
+                        key={setting}
+                        className="inline-flex items-center rounded-full bg-gray-100 dark:bg-gray-700/60 px-3 py-1 text-xs text-gray-600 dark:text-gray-300"
+                      >
+                        {setting}
+                      </span>
+                    ))}
+                    {selectedPolicyPreview.affectedSettings.length === 0 && (
+                      <p className="text-sm text-gray-400 dark:text-gray-500 italic">No affected settings available</p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <h4 className="text-sm font-semibold mb-3">All settings for this policy</h4>
+                  <SettingsView settings={selectedPolicy?.settings?.length ? selectedPolicy.settings : selectedPolicy?.raw} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

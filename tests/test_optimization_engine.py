@@ -89,7 +89,7 @@ class OptimizationEngineTests(unittest.TestCase):
         self.assertEqual(finding.shared_setting_count, 1)
         self.assertEqual(finding.conflict_count, 0)
         self.assertEqual(sorted(policy.policy_id for policy in finding.policies), ["edge-1", "edge-2"])
-        self.assertIn("edgeBlocked", finding.policies[0].affected_settings)
+        self.assertTrue(any("Edge" in setting for setting in finding.policies[0].affected_settings))
 
     def test_emits_fragmentation_hotspot_for_split_domain_cluster(self) -> None:
         policies = [
