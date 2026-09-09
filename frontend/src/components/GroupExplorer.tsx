@@ -22,10 +22,10 @@ function Spinner({ className = 'h-5 w-5' }: { className?: string }) {
 
 function AssignmentBadge({ source }: { source: string }) {
   const styles: Record<string, string> = {
-    Direct: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
-    Inherited: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300',
-    'All Users': 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
-    'All Devices': 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
+    Direct: 'bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300',
+    Inherited: 'bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-300',
+    'All Users': 'bg-lime-50 text-lime-800 dark:bg-lime-900/30 dark:text-lime-300',
+    'All Devices': 'bg-lime-50 text-lime-800 dark:bg-lime-900/30 dark:text-lime-300',
   }
   return (
     <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded ${styles[source] ?? 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>
@@ -69,6 +69,7 @@ function GroupToPolicies({ groups }: { groups: Group[] }) {
   const [collapsedTypes, setCollapsedTypes] = useState<Set<string>>(new Set())
   const [includeAllUsers, setIncludeAllUsers] = useState(true)
   const [includeAllDevices, setIncludeAllDevices] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   // Client-side filter
   const filtered = query.trim()
@@ -83,14 +84,16 @@ function GroupToPolicies({ groups }: { groups: Group[] }) {
     allDevices: boolean,
   ) => {
     setLoadingPolicies(true)
+    setError(null)
     try {
       const data = await getGroupPolicies(group.id, {
         includeAllUsers: allUsers,
         includeAllDevices: allDevices,
       })
       setMappings(data)
-    } catch {
+    } catch (e) {
       setMappings([])
+      setError(e instanceof Error ? e.message : 'Could not load policies for this group')
     } finally {
       setLoadingPolicies(false)
     }
@@ -150,16 +153,16 @@ function GroupToPolicies({ groups }: { groups: Group[] }) {
   })).filter((t) => t.policies.length > 0)
 
   return (
-    <div className="flex gap-6 h-[calc(100vh-16rem)]">
+    <div className="grid gap-6 lg:grid-cols-[20rem_minmax(0,1fr)] lg:min-h-[36rem]">
       {/* Left panel — group search & list */}
-      <div className="w-80 flex-shrink-0 flex flex-col">
+      <aside className="flex min-h-72 flex-col border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-[#121b19] lg:max-h-[calc(100dvh-17rem)]">
         <div className="relative">
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Filter groups…"
-            className="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 placeholder-gray-400"
+            className="w-full rounded-md border border-slate-300 bg-[#f8faf7] px-4 py-2.5 text-sm placeholder-slate-400 transition focus:border-[#147d72] dark:border-white/10 dark:bg-white/5"
           />
         </div>
 
@@ -167,7 +170,7 @@ function GroupToPolicies({ groups }: { groups: Group[] }) {
           {groups.length} groups{query.trim() ? ` · ${filtered.length} shown` : ''}
         </p>
 
-        <div className="mt-2 flex-1 overflow-y-auto space-y-1">
+        <div className="mt-2 flex-1 overflow-y-auto space-y-1 pr-1">
           {filtered.length === 0 && (
             <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-8">
               {query.trim() ? 'No groups match your filter' : 'No groups found'}
@@ -177,10 +180,10 @@ function GroupToPolicies({ groups }: { groups: Group[] }) {
             <button
               key={group.id}
               onClick={() => handleSelectGroup(group)}
-              className={`w-full text-left px-4 py-3 rounded-lg transition-colors ${
+              className={`w-full border-l-2 px-3 py-3 text-left transition ${
                 selectedGroup?.id === group.id
-                  ? 'bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700'
-                  : 'hover:bg-gray-50 dark:hover:bg-gray-800 border border-transparent'
+                  ? 'border-[#147d72] bg-teal-50/70 text-[#125f58] dark:bg-teal-900/20 dark:text-teal-200'
+                  : 'border-transparent hover:bg-slate-50 dark:hover:bg-white/5'
               }`}
             >
               <p className="text-sm font-medium truncate">{group.displayName}</p>
@@ -192,32 +195,32 @@ function GroupToPolicies({ groups }: { groups: Group[] }) {
             </button>
           ))}
         </div>
-      </div>
+      </aside>
 
       {/* Right panel — policies for selected group */}
-      <div className="flex-1 overflow-y-auto">
+      <section className="min-h-80 overflow-y-auto lg:max-h-[calc(100dvh-17rem)]">
         {!selectedGroup && (
-          <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-500">
-            <p className="text-sm">Select a group to view its policies</p>
+          <div className="grid h-full min-h-72 place-items-center border border-dashed border-slate-300 bg-white/40 p-8 text-center dark:border-white/15 dark:bg-white/[0.02]">
+            <div><span className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-slate-100 font-mono text-xs font-bold text-slate-500 dark:bg-white/10 dark:text-slate-300">G→P</span><p className="mt-4 text-sm font-semibold text-slate-700 dark:text-slate-200">Select a group to view its policies</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Direct, inherited, and tenant-wide assignments appear here.</p></div>
           </div>
         )}
 
         {selectedGroup && loadingPolicies && (
           <div className="flex items-center justify-center h-full">
-            <Spinner className="h-8 w-8 text-blue-500" />
+            <Spinner className="h-8 w-8 text-[#147d72]" />
           </div>
         )}
 
         {selectedGroup && !loadingPolicies && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">
-                {selectedGroup.displayName}
-              </h2>
+              <div><p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#147d72] dark:text-[#6ee7d8]">Selected group</p><h2 className="mt-1 text-2xl font-semibold tracking-tight">{selectedGroup.displayName}</h2></div>
               <span className="text-sm text-gray-400 dark:text-gray-500">
                 {allPoliciesWithSource.length} policies
               </span>
             </div>
+
+            {error && <div role="alert" className="border-l-4 border-red-500 bg-red-50 px-4 py-3 text-sm text-red-800 dark:bg-red-950/40 dark:text-red-200">{error}</div>}
 
             <div className="flex items-center gap-5">
               <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -225,7 +228,7 @@ function GroupToPolicies({ groups }: { groups: Group[] }) {
                   type="checkbox"
                   checked={includeAllUsers}
                   onChange={(e) => handleToggleAllUsers(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                  className="h-4 w-4 rounded border-gray-300 text-[#147d72] focus:ring-[#147d72] dark:border-gray-600"
                 />
                 <span className="text-sm text-gray-600 dark:text-gray-300">Include All Users</span>
               </label>
@@ -234,7 +237,7 @@ function GroupToPolicies({ groups }: { groups: Group[] }) {
                   type="checkbox"
                   checked={includeAllDevices}
                   onChange={(e) => handleToggleAllDevices(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                  className="h-4 w-4 rounded border-gray-300 text-[#147d72] focus:ring-[#147d72] dark:border-gray-600"
                 />
                 <span className="text-sm text-gray-600 dark:text-gray-300">Include All Devices</span>
               </label>
@@ -247,13 +250,13 @@ function GroupToPolicies({ groups }: { groups: Group[] }) {
             )}
 
             {policiesByType.map((section) => (
-              <div key={section.key} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <div key={section.key} className="overflow-hidden border border-slate-200 bg-white dark:border-white/10 dark:bg-[#121b19]">
                 <button
                   onClick={() => toggleType(section.key)}
                   className="w-full flex items-center justify-between px-5 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
                 >
                   <span className="font-medium text-sm">
-                    {section.icon} {section.label}
+                    <span className="mr-2 inline-grid h-7 w-7 place-items-center rounded bg-slate-100 font-mono text-[9px] font-bold dark:bg-white/10">{section.icon}</span> {section.label}
                     <span className="ml-2 text-gray-400 font-normal">({section.policies.length})</span>
                   </span>
                   <span className="text-gray-400 text-xs">{collapsedTypes.has(section.key) ? '▸' : '▾'}</span>
@@ -292,7 +295,7 @@ function GroupToPolicies({ groups }: { groups: Group[] }) {
             ))}
           </div>
         )}
-      </div>
+      </section>
     </div>
   )
 }
@@ -304,6 +307,7 @@ function PolicyToGroups({ policies }: { policies: Policy[] }) {
   const [selectedPolicy, setSelectedPolicy] = useState<Policy | null>(null)
   const [targetGroups, setTargetGroups] = useState<PolicyGroupTarget[]>([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const filtered = policies.filter((p) =>
     p.displayName.toLowerCase().includes(filter.toLowerCase()),
@@ -312,11 +316,13 @@ function PolicyToGroups({ policies }: { policies: Policy[] }) {
   const handleSelectPolicy = useCallback(async (policy: Policy) => {
     setSelectedPolicy(policy)
     setLoading(true)
+    setError(null)
     try {
       const data = await getPolicyGroups(policy.id)
       setTargetGroups(data)
-    } catch {
+    } catch (e) {
       setTargetGroups([])
+      setError(e instanceof Error ? e.message : 'Could not load assignments for this policy')
     } finally {
       setLoading(false)
     }
@@ -329,15 +335,15 @@ function PolicyToGroups({ policies }: { policies: Policy[] }) {
   }
 
   return (
-    <div className="flex gap-6 h-[calc(100vh-16rem)]">
+    <div className="grid gap-6 lg:grid-cols-[20rem_minmax(0,1fr)] lg:min-h-[36rem]">
       {/* Left panel — policy list */}
-      <div className="w-80 flex-shrink-0 flex flex-col">
+      <aside className="flex min-h-72 flex-col border border-slate-200 bg-white p-3 dark:border-white/10 dark:bg-[#121b19] lg:max-h-[calc(100dvh-17rem)]">
         <input
           type="text"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filter policies…"
-          className="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 placeholder-gray-400"
+          className="w-full rounded-md border border-slate-300 bg-[#f8faf7] px-4 py-2.5 text-sm placeholder-slate-400 transition focus:border-[#147d72] dark:border-white/10 dark:bg-white/5"
         />
 
         <div className="mt-3 flex-1 overflow-y-auto space-y-1">
@@ -352,10 +358,10 @@ function PolicyToGroups({ policies }: { policies: Policy[] }) {
               <button
                 key={policy.id}
                 onClick={() => handleSelectPolicy(policy)}
-                className={`w-full text-left px-4 py-3 rounded-lg transition-colors ${
+                className={`w-full border-l-2 px-3 py-3 text-left transition ${
                   selectedPolicy?.id === policy.id
-                    ? 'bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700'
-                    : 'hover:bg-gray-50 dark:hover:bg-gray-800 border border-transparent'
+                    ? 'border-[#147d72] bg-teal-50/70 text-[#125f58] dark:bg-teal-900/20 dark:text-teal-200'
+                    : 'border-transparent hover:bg-slate-50 dark:hover:bg-white/5'
                 }`}
               >
                 <p className="text-sm font-medium truncate">{policy.displayName}</p>
@@ -366,36 +372,38 @@ function PolicyToGroups({ policies }: { policies: Policy[] }) {
             )
           })}
         </div>
-      </div>
+      </aside>
 
       {/* Right panel — groups for selected policy */}
-      <div className="flex-1 overflow-y-auto">
+      <section className="min-h-80 overflow-y-auto lg:max-h-[calc(100dvh-17rem)]">
         {!selectedPolicy && (
-          <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-500">
-            <p className="text-sm">Select a policy to view its target groups</p>
+          <div className="grid h-full min-h-72 place-items-center border border-dashed border-slate-300 bg-white/40 p-8 text-center dark:border-white/15 dark:bg-white/[0.02]">
+            <div><span className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-slate-100 font-mono text-xs font-bold text-slate-500 dark:bg-white/10 dark:text-slate-300">P→G</span><p className="mt-4 text-sm font-semibold text-slate-700 dark:text-slate-200">Select a policy to view its target groups</p><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Includes group, tenant-wide, and filtered assignments.</p></div>
           </div>
         )}
 
         {selectedPolicy && loading && (
           <div className="flex items-center justify-center h-full">
-            <Spinner className="h-8 w-8 text-blue-500" />
+            <Spinner className="h-8 w-8 text-[#147d72]" />
           </div>
         )}
 
         {selectedPolicy && !loading && (
           <div className="space-y-4">
-            <h2 className="text-lg font-semibold">{selectedPolicy.displayName}</h2>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#147d72] dark:text-[#6ee7d8]">Selected policy</p><h2 className="mt-1 text-2xl font-semibold tracking-tight">{selectedPolicy.displayName}</h2></div>
             {selectedPolicy.description && (
               <p className="text-sm text-gray-500 dark:text-gray-400">{selectedPolicy.description}</p>
             )}
+
+            {error && <div role="alert" className="border-l-4 border-red-500 bg-red-50 px-4 py-3 text-sm text-red-800 dark:bg-red-950/40 dark:text-red-200">{error}</div>}
 
             {targetGroups.length === 0 ? (
               <p className="text-sm text-gray-400 dark:text-gray-500 py-8 text-center">
                 No groups targeted by this policy
               </p>
             ) : (
-              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-                <table className="w-full">
+              <div className="overflow-x-auto border border-slate-200 bg-white dark:border-white/10 dark:bg-[#121b19]">
+                <table className="min-w-[36rem] w-full">
                   <thead>
                     <tr className="border-b border-gray-100 dark:border-gray-700 text-left text-sm text-gray-500 dark:text-gray-400">
                       <th className="px-5 py-3 font-medium">Group</th>
@@ -425,7 +433,7 @@ function PolicyToGroups({ policies }: { policies: Policy[] }) {
             )}
           </div>
         )}
-      </div>
+      </section>
     </div>
   )
 }
@@ -436,32 +444,32 @@ export default function GroupExplorer({ policies, groups }: GroupExplorerProps) 
   const [mode, setMode] = useState<Mode>('groupToPolicies')
 
   return (
-    <div className="space-y-4">
-      {/* Mode toggle */}
-      <div className="flex items-center gap-2">
-        <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1">
+    <div className="space-y-7">
+      <header className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
+        <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#147d72] dark:text-[#6ee7d8]">Assignment map</p><h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">Trace policy reach</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">Move in either direction between Entra groups and Intune policy assignments.</p></div>
+        <div className="inline-flex self-start rounded-md border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/5">
           <button
             onClick={() => setMode('groupToPolicies')}
-            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+            className={`rounded px-4 py-2 text-sm font-semibold transition ${
               mode === 'groupToPolicies'
-                ? 'bg-blue-600 text-white'
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                ? 'bg-[#16332f] text-white dark:bg-[#d9f99d] dark:text-[#16332f]'
+                : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
             }`}
           >
             Group → Policies
           </button>
           <button
             onClick={() => setMode('policyToGroups')}
-            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+            className={`rounded px-4 py-2 text-sm font-semibold transition ${
               mode === 'policyToGroups'
-                ? 'bg-blue-600 text-white'
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                ? 'bg-[#16332f] text-white dark:bg-[#d9f99d] dark:text-[#16332f]'
+                : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
             }`}
           >
             Policy → Groups
           </button>
         </div>
-      </div>
+      </header>
 
       {/* Active view */}
       {mode === 'groupToPolicies' ? <GroupToPolicies groups={groups} /> : <PolicyToGroups policies={policies} />}

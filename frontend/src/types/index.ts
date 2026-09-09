@@ -39,16 +39,16 @@ export interface PolicyTypeInfo {
 }
 
 export const POLICY_TYPES: PolicyTypeInfo[] = [
-  { key: 'deviceConfiguration', label: 'Device Configuration', icon: '⚙️' },
-  { key: 'settingsCatalog', label: 'Settings Catalog', icon: '📋' },
-  { key: 'compliance', label: 'Compliance', icon: '✅' },
-  { key: 'complianceV2', label: 'Compliance v2', icon: '✅' },
-  { key: 'appProtection', label: 'App Protection', icon: '🛡️' },
-  { key: 'appConfiguration', label: 'App Configuration', icon: '📱' },
-  { key: 'endpointSecurity', label: 'Endpoint Security', icon: '🔒' },
-  { key: 'conditionalAccess', label: 'Conditional Access', icon: '🚪' },
-  { key: 'autopilot', label: 'Autopilot', icon: '✈️' },
-  { key: 'powershellScripts', label: 'PowerShell Scripts', icon: '📜' },
-  { key: 'remediationScripts', label: 'Remediation Scripts', icon: '🔧' },
-  { key: 'groupPolicy', label: 'Group Policy (ADMX)', icon: '🏛️' },
+  { key: 'deviceConfiguration', label: 'Device Configuration', icon: 'DC' },
+  { key: 'settingsCatalog', label: 'Settings Catalog', icon: 'SC' },
+  { key: 'compliance', label: 'Compliance', icon: 'CP' },
+  { key: 'complianceV2', label: 'Compliance v2', icon: 'C2' },
+  { key: 'appProtection', label: 'App Protection', icon: 'AP' },
+  { key: 'appConfiguration', label: 'App Configuration', icon: 'AC' },
+  { key: 'endpointSecurity', label: 'Endpoint Security', icon: 'ES' },
+  { key: 'conditionalAccess', label: 'Conditional Access', icon: 'CA' },
+  { key: 'autopilot', label: 'Autopilot', icon: 'AU' },
+  { key: 'powershellScripts', label: 'PowerShell Scripts', icon: 'PS' },
+  { key: 'remediationScripts', label: 'Remediation Scripts', icon: 'RM' },
+  { key: 'groupPolicy', label: 'Group Policy (ADMX)', icon: 'GP' },
 ]

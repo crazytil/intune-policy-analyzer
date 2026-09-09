@@ -37,7 +37,7 @@ function Spinner({ className = 'h-5 w-5' }: { className?: string }) {
   )
 }
 
-function StatCard({ label, value, icon, accent }: { label: string; value: number | string; icon: string; accent?: string }) {
+function StatCard({ label, value, index, accent }: { label: string; value: number | string; index: string; accent?: string }) {
   const accentClass = accent === 'red'
     ? 'text-red-600 dark:text-red-400'
     : accent === 'green'
@@ -46,9 +46,9 @@ function StatCard({ label, value, icon, accent }: { label: string; value: number
         ? 'text-amber-600 dark:text-amber-400'
         : ''
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
-      <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{icon} {label}</p>
-      <p className={`mt-2 text-3xl font-bold tracking-tight ${accentClass}`}>{value}</p>
+    <div className="border-t-2 border-slate-300 bg-white p-5 dark:border-slate-700 dark:bg-[#121b19] sm:p-6">
+      <div className="flex items-center justify-between"><p className="text-xs font-semibold uppercase tracking-[0.13em] text-slate-600 dark:text-slate-300">{label}</p><span aria-hidden="true" className="font-mono text-[10px] text-slate-500 dark:text-slate-400">{index}</span></div>
+      <p className={`mt-5 text-4xl font-semibold tracking-[-0.04em] tabular-nums ${accentClass}`}>{value}</p>
     </div>
   )
 }
@@ -205,35 +205,41 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
   const hasAnalyzed = conflicts !== null
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      <header>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#147d72] dark:text-[#6ee7d8]">Policy intelligence</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">Find configuration collisions</h1>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">Compare settings across policy scopes and identify values that compete for the same target.</p>
+      </header>
+
       {/* Stats bar */}
       {stats && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard icon="🔗" label="Overlapping Settings" value={stats.totalOverlapping} />
-          <StatCard icon="⚠️" label="Conflicting" value={stats.conflictCount} accent="red" />
-          <StatCard icon="✅" label="Matching" value={stats.matchingCount} accent="green" />
-          <StatCard icon="📦" label="Affected Policies" value={stats.affectedPolicies} />
+        <div className="grid grid-cols-1 gap-px bg-slate-200 sm:grid-cols-2 lg:grid-cols-4 dark:bg-white/10">
+          <StatCard index="01" label="Overlapping Settings" value={stats.totalOverlapping} />
+          <StatCard index="02" label="Conflicting" value={stats.conflictCount} accent="red" />
+          <StatCard index="03" label="Matching" value={stats.matchingCount} accent="green" />
+          <StatCard index="04" label="Affected Policies" value={stats.affectedPolicies} />
         </div>
       )}
 
       {/* Scope selector */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5 space-y-4">
-        <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Analyse scope</p>
+      <section className="space-y-5 border border-slate-200 bg-white p-5 dark:border-white/10 dark:bg-[#121b19] sm:p-6">
+        <div><p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">Analysis scope</p><h2 className="mt-1 text-lg font-semibold">Choose what to compare</h2></div>
 
         {/* Scope mode toggle */}
-        <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-1">
+        <div className="inline-flex max-w-full overflow-x-auto rounded-md border border-slate-200 bg-[#f3f5f2] p-1 dark:border-white/10 dark:bg-[#0c1211]">
           {([
-            { key: 'all', label: '🌐 All Policies' },
-            { key: 'group', label: '👥 By Group' },
-            { key: 'policy', label: '📋 By Policy' },
+            { key: 'all', label: 'All policies' },
+            { key: 'group', label: 'By group' },
+            { key: 'policy', label: 'By policy' },
           ] as const).map((opt) => (
             <button
               key={opt.key}
               onClick={() => { setScopeMode(opt.key); setConflicts(null); setStats(null) }}
               className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
                 scopeMode === opt.key
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  ? 'bg-[#16332f] text-white dark:bg-[#d9f99d] dark:text-[#16332f]'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
               }`}
             >
               {opt.label}
@@ -250,7 +256,7 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
                 value={groupFilter}
                 onChange={(e) => setGroupFilter(e.target.value)}
                 placeholder="Filter groups…"
-                className="w-full max-w-md px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
+                className="w-full max-w-md rounded-md border border-slate-300 bg-[#f8faf7] px-4 py-2 text-sm placeholder-slate-400 focus:border-[#147d72] dark:border-white/10 dark:bg-white/5"
               />
               <div className="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-700/50">
                 {/* Special targets */}
@@ -259,7 +265,7 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
                     onClick={() => setSelectedGroupId('all_users')}
                     className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
                       selectedGroupId === 'all_users'
-                        ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
+                        ? 'bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300 font-medium'
                         : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
                     }`}
                   >
@@ -271,7 +277,7 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
                     onClick={() => setSelectedGroupId('all_devices')}
                     className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
                       selectedGroupId === 'all_devices'
-                        ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
+                        ? 'bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300 font-medium'
                         : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
                     }`}
                   >
@@ -285,7 +291,7 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
                     onClick={() => setSelectedGroupId(g.id)}
                     className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
                       selectedGroupId === g.id
-                        ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
+                        ? 'bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300 font-medium'
                         : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
                     }`}
                   >
@@ -300,11 +306,11 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
             {selectedGroupId && !isSpecialTarget && (
               <div className="flex items-center gap-5">
                 <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={includeAllUsers} onChange={(e) => setIncludeAllUsers(e.target.checked)} className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500" />
+                  <input type="checkbox" checked={includeAllUsers} onChange={(e) => setIncludeAllUsers(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-[#147d72] focus:ring-[#147d72] dark:border-gray-600" />
                   <span className="text-sm text-gray-600 dark:text-gray-300">Include All Users</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={includeAllDevices} onChange={(e) => setIncludeAllDevices(e.target.checked)} className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500" />
+                  <input type="checkbox" checked={includeAllDevices} onChange={(e) => setIncludeAllDevices(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-[#147d72] focus:ring-[#147d72] dark:border-gray-600" />
                   <span className="text-sm text-gray-600 dark:text-gray-300">Include All Devices</span>
                 </label>
               </div>
@@ -320,7 +326,7 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
               value={policyFilter}
               onChange={(e) => setPolicyFilter(e.target.value)}
               placeholder="Filter policies…"
-              className="w-full max-w-md px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-400"
+              className="w-full max-w-md rounded-md border border-slate-300 bg-[#f8faf7] px-4 py-2 text-sm placeholder-slate-400 focus:border-[#147d72] dark:border-white/10 dark:bg-white/5"
             />
             <div className="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-700/50">
               {filteredPolicies.slice(0, 50).map((p) => {
@@ -331,7 +337,7 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
                     onClick={() => setSelectedPolicyId(p.id)}
                     className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
                       selectedPolicyId === p.id
-                        ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium'
+                        ? 'bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300 font-medium'
                         : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
                     }`}
                   >
@@ -356,7 +362,7 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
                 onClick={() => setSelectedPlatforms([])}
                 className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                   selectedPlatforms.length === 0
-                    ? 'border-blue-600 bg-blue-600 text-white'
+                    ? 'border-[#147d72] bg-[#147d72] text-white'
                     : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300'
                 }`}
               >
@@ -374,7 +380,7 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
                     ))}
                     className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
                       selected
-                        ? 'border-blue-600 bg-blue-600 text-white'
+                        ? 'border-[#147d72] bg-[#147d72] text-white'
                         : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300'
                     }`}
                   >
@@ -398,7 +404,7 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
             Showing overlaps for: <span className="font-medium text-gray-600 dark:text-gray-300">{scopeLabel}</span>
           </p>
         )}
-      </div>
+      </section>
 
       {/* Result filter controls */}
       {hasAnalyzed && (
@@ -415,8 +421,8 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
                 onClick={() => setFilterMode(chip.key)}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                   filterMode === chip.key
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                    ? 'bg-[#16332f] text-white dark:bg-[#d9f99d] dark:text-[#16332f]'
+                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
                 }`}
               >
                 {chip.label}
@@ -430,7 +436,7 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter by setting or policy name…"
-            className="flex-1 min-w-0 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 placeholder-gray-400"
+            className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm placeholder-slate-400 focus:border-[#147d72] dark:border-white/10 dark:bg-white/5"
           />
         </div>
       )}
@@ -454,7 +460,7 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
 
       {loading && (
         <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400 dark:text-gray-500">
-          <Spinner className="h-8 w-8 text-blue-500" />
+          <Spinner className="h-8 w-8 text-[#147d72]" />
           <p className="text-sm">Analysing{scopeLabel ? ` "${scopeLabel}"` : ' all policies'}…</p>
         </div>
       )}
@@ -472,10 +478,10 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
 
       {/* Results */}
       {hasAnalyzed && filtered.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="overflow-hidden border border-slate-200 bg-white dark:border-white/10 dark:bg-[#121b19]">
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Overlapping Settings</h2>
-            <span className="text-sm text-gray-400 dark:text-gray-500">{filtered.length} results</span>
+            <h2 className="text-lg font-semibold">Overlapping settings</h2>
+            <span className="text-sm text-slate-600 dark:text-slate-300">{filtered.length} results</span>
           </div>
 
           <div className="divide-y divide-gray-100 dark:divide-gray-700/50">
@@ -487,14 +493,14 @@ export default function ConflictAnalyzer({ policies, groups }: ConflictAnalyzerP
                   className="w-full text-left px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700/20 transition-colors"
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <span className="text-xs text-gray-400 flex-shrink-0">{expandedRows.has(item.settingKey) ? '▾' : '▸'}</span>
+                    <span className="flex-shrink-0 text-xs text-slate-600 dark:text-slate-300">{expandedRows.has(item.settingKey) ? '▾' : '▸'}</span>
                     <div className="flex-1 min-w-0 overflow-hidden">
                       <p className="text-sm font-medium truncate">{friendlySettingName(item.settingLabel || item.settingKey)}</p>
-                      <p className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">
+                      <p className="mt-0.5 truncate text-xs text-slate-600 dark:text-slate-300">
                         {formatSettingPath(item.settingKey)}
                       </p>
                     </div>
-                    <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 whitespace-nowrap">
+                    <span className="flex-shrink-0 whitespace-nowrap text-xs text-slate-600 dark:text-slate-300">
                       {item.policies.length} policies
                     </span>
                     <span

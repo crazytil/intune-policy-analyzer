@@ -1,3 +1,43 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    font-family: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
+    font-synthesis: none;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    min-width: 320px;
+    min-height: 100dvh;
+    margin: 0;
+    background: #f3f5f2;
+    text-rendering: optimizeLegibility;
+  }
+
+  .dark body {
+    background: #0c1211;
+  }
+
+  button,
+  input,
+  select {
+    outline: none;
+  }
+
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  a:focus-visible {
+    box-shadow: 0 0 0 3px rgba(20, 125, 114, 0.28);
+  }
+
+  ::selection {
+    background: rgba(20, 125, 114, 0.22);
+  }
+}
