@@ -35,7 +35,70 @@ The backend authenticates using the **existing Microsoft Graph PowerShell enterp
 - Remediation Scripts (Proactive Remediations)
 - Group Policy (ADMX)
 
-## Prerequisites
+## Windows executable — no Python or Node.js installation
+
+The standalone build bundles the Python runtime, backend, and compiled frontend into
+`IntunePolicyAnalyzer.exe`. Users only need a browser, network access to Microsoft,
+and the tenant permissions listed below. No installer or administrator rights are
+required by the app.
+
+### Get a build using GitHub Actions
+
+Once this workflow is in your repository's default branch:
+
+1. Open **Actions → Build Windows executable → Run workflow**.
+2. After it succeeds, download the **IntunePolicyAnalyzer-windows-x64** artifact.
+3. Extract the ZIP and double-click `IntunePolicyAnalyzer.exe`.
+
+The app opens in your default browser. Keep its console window open while using it;
+press **Ctrl+C** in that window to stop the server. Closing the browser alone does
+not stop it. The server binds only to `127.0.0.1`, using port 8099 by default.
+The console prints the local address if the browser does not open automatically.
+
+The executable is unsigned. SmartScreen, antivirus, or application-control policies
+may require IT review, code signing, or allowlisting. **Bundling Python avoids an
+installation requirement; it does not make the app Python-free or bypass a policy
+that prohibits Python runtimes.** Ask IT to approve the application rather than
+disabling security controls. The single-file executable extracts runtime files to
+the user's temporary directory while running, which must permit execution.
+
+The existing token cache is stored at
+`%LOCALAPPDATA%\IntunePolicyAnalyzer\.token_cache.json`, not next to the executable.
+It contains sensitive credentials and is not encrypted by the app; protect the
+Windows user profile and use **Logout** to remove the cache. Tenant policy data
+remains in memory. `INTUNE_TOKEN_CACHE_FILE` can override the cache location.
+
+If port 8099 is occupied, use PowerShell to choose another port:
+
+```powershell
+$env:INTUNE_BACKEND_PORT = '8100'
+.\IntunePolicyAnalyzer.exe
+```
+
+### Build locally (maintainers only)
+
+Build on **Windows x64**, with Python 3.11 and Node.js 22 installed on the build
+machine. End users do not need either dependency. From the repository root:
+
+```powershell
+py -3.11 -m venv backend/venv
+backend/venv/Scripts/python.exe -m pip install -r backend/requirements-build.txt
+npm --prefix frontend ci
+npm --prefix frontend run build
+backend/venv/Scripts/python.exe -m unittest discover -s tests
+backend/venv/Scripts/python.exe -m PyInstaller --clean --noconfirm standalone.spec
+```
+
+Distribute `dist/IntunePolicyAnalyzer.exe`. The workflow uses these same build steps
+and checks that the packaged executable serves the frontend, JavaScript, and API
+from outside the source checkout. No live Graph requests are used in those checks.
+
+PyInstaller builds for the OS it runs on; Linux cannot produce the Windows `.exe`.
+The same spec can produce a native Linux executable using `backend/venv/bin/python`
+instead. For source-based testing after building the frontend, run
+`python backend/standalone.py --no-browser`. Omit `--no-browser` to open the browser.
+
+## Prerequisites (running from source)
 
 - **Python 3.11+**
 - **Node.js 18+**
