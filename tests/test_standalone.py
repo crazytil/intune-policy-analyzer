@@ -42,7 +42,8 @@ class StandaloneTests(unittest.TestCase):
         from standalone import configure_token_cache
 
         with tempfile.TemporaryDirectory() as directory:
-            with patch.dict(os.environ, {"LOCALAPPDATA": directory}, clear=True):
+            with patch.dict(os.environ, {"LOCALAPPDATA": directory}, clear=True), \
+                 patch("standalone.Path.home", side_effect=RuntimeError("Could not determine home directory.")):
                 configure_token_cache()
                 expected = Path(directory) / "IntunePolicyAnalyzer" / ".token_cache.json"
                 self.assertEqual(os.environ["INTUNE_TOKEN_CACHE_FILE"], str(expected))

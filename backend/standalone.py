@@ -17,7 +17,8 @@ import uvicorn
 def configure_token_cache() -> None:
     # Never write credentials beside the executable or into its extraction folder.
     if "INTUNE_TOKEN_CACHE_FILE" not in os.environ:
-        base = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".local" / "share")))
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        base = Path(local_app_data) if local_app_data is not None else Path.home() / ".local" / "share"
         directory = base / "IntunePolicyAnalyzer"
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.environ["INTUNE_TOKEN_CACHE_FILE"] = str(directory / ".token_cache.json")
