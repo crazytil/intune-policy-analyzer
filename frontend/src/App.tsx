@@ -4,6 +4,7 @@ import { getAuthStatus, login, logout, fetchPolicies, fetchAllGroups } from './s
 import Dashboard from './components/Dashboard'
 import GroupExplorer from './components/GroupExplorer'
 import ConflictAnalyzer from './components/ConflictAnalyzer'
+import Optimization from './components/Optimization'
 
 type Tab = 'dashboard' | 'groupExplorer' | 'conflicts' | 'optimization'
 
@@ -271,7 +272,7 @@ export default function App() {
     { key: 'dashboard', label: 'Overview', shortLabel: 'Overview', marker: '01', disabled: false },
     { key: 'groupExplorer', label: 'Assignment explorer', shortLabel: 'Explorer', marker: '02', disabled: false },
     { key: 'conflicts', label: 'Conflict analysis', shortLabel: 'Conflicts', marker: '03', disabled: false },
-    { key: 'optimization', label: 'Optimisation', shortLabel: 'Optimise', marker: '04', disabled: true },
+    { key: 'optimization', label: 'Optimisation', shortLabel: 'Optimise', marker: '04', disabled: false },
   ]
 
   return (
@@ -425,7 +426,7 @@ export default function App() {
                           : 'border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:text-white'
                     }`}
                   >
-                    <span aria-hidden="true" className="font-mono text-[10px]">{tab.marker}</span>
+                    <span aria-hidden="true" className="hidden font-mono text-[10px] sm:inline">{tab.marker}</span>
                     <span className="hidden sm:inline">{tab.label}</span><span className="sm:hidden">{tab.shortLabel}</span>
                     {tab.disabled && (
                       <span className="ml-0.5 border border-slate-200 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-slate-400 dark:border-white/10 dark:text-slate-500">
@@ -455,6 +456,15 @@ export default function App() {
             )}
             {activeTab === 'conflicts' && (
               <ConflictAnalyzer policies={policies} groups={groups} />
+            )}
+            {activeTab === 'optimization' && (
+              <Optimization
+                key={authCacheKey}
+                policies={policies}
+                groups={groups}
+                isReady={authCacheKey !== null && loadedForKey === authCacheKey}
+                loading={dataLoading}
+              />
             )}
           </main>
         </>

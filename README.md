@@ -6,8 +6,31 @@ A locally-run web application for analyzing Microsoft Intune policies. Find all 
 
 - **Group Explorer** — Select a group, see every policy assigned to it (including nested group inheritance and "All Users"/"All Devices"). Switch to reverse view: select a policy, see all target groups.
 - **Conflict Analyzer** — Detect settings configured differently across policies targeting the same group. Red = conflict (different values), amber = duplicate (same value, multiple places).
-- **Policy Optimization** — Find orphaned policies (empty/deleted groups), unused policies (no assignments), overly broad assignments, consolidation candidates, and redundant assignments.
+- **Policy Optimization** — Review consolidation candidates and domain fragmentation, filter by platform or direct group assignment, and inspect affected settings and complete policy payloads. Recommendations never change tenant configuration.
 - **Export** — CSV, HTML, and PDF reports for audit and governance.
+
+### Optimization scope
+
+The optimizer compares Device Configuration, Settings Catalog, Compliance v1/v2,
+and Endpoint Security policies within the same platform, policy family, schema,
+and template. It requires identical complete assignments, including exclusions
+and assignment filters; sharing a group alone is not enough.
+
+- **Consolidation candidates:** at least two policies share a setting and have no
+  conflicting fetched settings, including settings outside the suggested domain.
+- **Fragmentation hotspots:** at least three policies spread at least three
+  distinct settings across one domain. These can include conflicts that need review.
+- Group filtering selects **direct include assignments**, not effective group
+  membership. It does not expand nested groups or All Users/All Devices targets.
+- Unknown domains, unknown platforms, missing assignments, and unsupported policy
+  families produce no recommendations. Matching legacy default-like values are
+  not evidence of duplication, but differing false/true values still block consolidation.
+
+These are review candidates, not migration instructions. Findings use fetched
+data only: Graph failures or missing permissions can leave gaps. An empty result
+does not certify a tenant as optimized. Review full settings, scope tags, template
+constraints, and assignment intent in Intune before making changes. Orphaned,
+unused, broad-assignment, and redundant-assignment checks are not implemented.
 
 ## How It Works
 

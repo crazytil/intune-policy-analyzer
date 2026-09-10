@@ -20,7 +20,8 @@ from group_resolver import (
     search_groups,
 )
 from conflict_analyzer import analyze_all_conflicts, analyze_conflicts_for_group, analyze_conflicts_for_policy, analyze_conflicts_for_target, build_conflict_stats
-from models import AuthStatus, GroupPolicyMapping, Policy
+from models import AuthStatus, GroupPolicyMapping, OptimizationAnalysisResult, Policy
+from optimization_engine import analyze_optimization_opportunities
 from policy_fetcher import fetch_all_policies
 
 logging.basicConfig(
@@ -406,6 +407,32 @@ async def analyze_conflicts_for_policy_route(
         raise HTTPException(
             status_code=500, detail=f"Conflict analysis failed: {e}"
         )
+
+
+@app.get("/api/optimize", response_model=OptimizationAnalysisResult, response_model_by_alias=True)
+async def analyze_optimization_route(
+    platform: Optional[list[str]] = Query(None),
+    group_id: Optional[str] = Query(None, alias="groupId"),
+) -> OptimizationAnalysisResult:
+    """Return read-only review candidates from the same cache as conflict analysis."""
+    try:
+        await _ensure_policies_loaded()
+        group_names = {
+            group["id"]: group["displayName"]
+            for group in (_groups_cache.get("all") or [])
+            if group.get("id") and group.get("displayName")
+        }
+        return analyze_optimization_opportunities(
+            list(_policies_cache.values()),
+            selected_platforms=_normalize_platform_filters(platform),
+            selected_group_id=group_id.strip() or None if group_id else None,
+            group_name_by_id=group_names,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        logger.error("Optimization analysis failed: %s", e)
+        raise HTTPException(status_code=500, detail="Optimization analysis failed")
 
 
 # ── App lifecycle ────────────────────────────────────────────────────────────

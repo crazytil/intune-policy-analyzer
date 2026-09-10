@@ -1,11 +1,11 @@
-import type { AuthStatus, Policy, Group, GroupPolicyMapping } from '../types'
+import type { AuthStatus, Policy, Group, GroupPolicyMapping, OptimizationAnalysisResult, OptimizationPlatform } from '../types'
 
 const BASE = '/api'
 const inflightRequests = new Map<string, Promise<unknown>>()
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
+async function request<T>(url: string, options?: RequestInit, deduplicate = true): Promise<T> {
   const method = options?.method ?? 'GET'
-  const dedupeKey = method === 'GET' ? `${method}:${url}` : null
+  const dedupeKey = method === 'GET' && deduplicate ? `${method}:${url}` : null
 
   if (dedupeKey) {
     const existing = inflightRequests.get(dedupeKey)
@@ -56,6 +56,22 @@ export async function fetchPolicies(options?: { refresh?: boolean }): Promise<Po
 
 export async function fetchAllGroups(): Promise<Group[]> {
   return request<Group[]>(`${BASE}/groups`)
+}
+
+export async function getPolicy(policyId: string): Promise<Policy> {
+  return request<Policy>(`${BASE}/policies/${encodeURIComponent(policyId)}`)
+}
+
+export async function analyzeOptimization(options?: {
+  platforms?: OptimizationPlatform[]
+  groupId?: string
+}): Promise<OptimizationAnalysisResult> {
+  const params = new URLSearchParams()
+  appendPlatformFilters(params, options?.platforms)
+  if (options?.groupId) params.set('groupId', options.groupId)
+  const qs = params.toString()
+  // A policy refresh must not reuse analysis started against the previous inventory.
+  return request<OptimizationAnalysisResult>(`${BASE}/optimize${qs ? `?${qs}` : ''}`, undefined, false)
 }
 
 export async function searchGroups(query: string): Promise<Group[]> {
